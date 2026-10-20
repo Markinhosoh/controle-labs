@@ -77,7 +77,7 @@ const MARCA = {
   // Contas de administrador (veem todas as lojas): <nome>@<dominioEmail>. As regras do Firestore
   // (firestore.rules) têm a MESMA lista: se mudar aqui, mude lá também.
   admins: ['admin'],
-  enderecoOficial: '',                // ex.: 'usuario.github.io' (preencha depois de publicar; vazio = sem aviso de cópia)
+  enderecoOficial: 'markinhosoh.github.io',                // ex.: 'usuario.github.io' (preencha depois de publicar; vazio = sem aviso de cópia)
   lojas: [
     // nome = como aparece e como fica gravado em cada pedido · slug = parte do e-mail de login
     // msg = como a loja se apresenta ao laboratório no WhatsApp · pdf = trecho do cabeçalho do relatório (SSOtica)
@@ -90,12 +90,12 @@ const MARCA = {
 
 // ---------- config do Firebase (projeto NOVO deste grupo; veja o LEIA-ME) ----------
 const firebaseConfig = {
-  apiKey: "COLE_AQUI_apiKey",
-  authDomain: "COLE_AQUI.firebaseapp.com",
-  projectId: "COLE_AQUI",
-  storageBucket: "COLE_AQUI.firebasestorage.app",
-  messagingSenderId: "COLE_AQUI",
-  appId: "COLE_AQUI"
+  apiKey: "AIzaSyAufqi11DZ7saoyxwaHKKLjxeKMDcAVdOQ",
+  authDomain: "co-controle-labs.firebaseapp.com",
+  projectId: "co-controle-labs",
+  storageBucket: "co-controle-labs.firebasestorage.app",
+  messagingSenderId: "763302173692",
+  appId: "1:763302173692:web:ebf1596457a84c1e49f079"
 };
 const FIREBASE_PENDENTE = /COLE_AQUI/.test(firebaseConfig.apiKey);
 let firebaseApp = null, fs = null, auth = null;
