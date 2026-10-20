@@ -72,8 +72,8 @@ const MARCA = {
   nome: 'Centro Ótico',
   logo: 'logo-branco.png',            // logo branca (aparece sobre o azul escuro)
   // Cada loja tem uma conta de login no Firebase com o e-mail  <slug>@<dominioEmail>
-  // (ex.: marica@controle.example.com). O "domínio" é só um nome: nenhum e-mail é enviado.
-  dominioEmail: 'controle.example.com',
+  // (ex.: marica@controledelab.com). O "domínio" é só um nome: nenhum e-mail é enviado.
+  dominioEmail: 'controledelab.com',
   // Contas de administrador (veem todas as lojas): <nome>@<dominioEmail>. As regras do Firestore
   // (firestore.rules) têm a MESMA lista: se mudar aqui, mude lá também.
   admins: ['admin'],
@@ -82,7 +82,7 @@ const MARCA = {
     // nome = como aparece e como fica gravado em cada pedido · slug = parte do e-mail de login
     // msg = como a loja se apresenta ao laboratório no WhatsApp · pdf = trecho do cabeçalho do relatório (SSOtica)
     { nome: 'Maricá',    slug: 'marica',   msg: 'C.O Maricá',   pdf: /maric/i },
-    { nome: 'Art Ótica', slug: 'art',      msg: 'Art Ótica SG', pdf: /\bart\W+.?tica/i },
+    { nome: 'Art Ótica', slug: 'artotica', msg: 'Art Ótica SG', pdf: /\bart\W+.?tica/i },
     { nome: 'Itaboraí',  slug: 'itaborai', msg: 'C.O Itaboraí', pdf: /itabora/i },
     { nome: 'Tanguá',    slug: 'tangua',   msg: 'C.O Tanguá',   pdf: /tangu/i }
   ]
