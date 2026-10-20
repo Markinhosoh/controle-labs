@@ -1,0 +1,2547 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>C.O Controle de Prazos</title>
+<meta name="theme-color" content="#2B4A85">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="icon-192.png">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#EEF2F8; --marca:#4A7FD6; --marca-dark:#2B4A85; --card:#FFFFFF; --ink:#2C2A22; --ink-soft:#5B564A;
+    --green:#4B5842; --green-dark:#3A4633; --green-tint:#DCE3D5;
+    --terracota:#C1633D; --terracota-dark:#A84F30; --terracota-tint:#F3DCCF;
+    --amber-dark:#8A6E12; --amber-tint:#F1E7C0; --border:#D8E0EC;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:'Manrope',system-ui,sans-serif;color:var(--ink);background:var(--bg);font-size:14px;}
+  button{font-family:inherit;cursor:pointer;border:none;background:none;}
+  a{color:inherit;}
+  input,select,textarea{font-family:inherit;font-size:14px;padding:9px 11px;border:1px solid var(--border);border-radius:8px;background:#fff;color:var(--ink);}
+  label{font-size:12px;font-weight:700;color:var(--ink-soft);display:block;margin-bottom:4px;}
+  .btn{padding:10px 18px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;}
+  .btn-primary{background:var(--marca-dark);color:#fff;}
+  .btn-outline{background:#fff;color:var(--ink);border:1px solid var(--border);}
+  .btn-terracota{background:var(--terracota-dark);color:#fff;}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;}
+  .chip{padding:4px 10px;border-radius:999px;font-size:12px;font-weight:700;display:inline-block;}
+  .chip-ok{background:var(--green-tint);color:var(--green-dark);}
+  .chip-atencao{background:var(--amber-tint);color:var(--amber-dark);}
+  .chip-urgente,.chip-destaque{background:var(--terracota-tint);color:var(--terracota-dark);}
+  .chip-atrasado{background:var(--terracota-dark);color:#fff;}
+  .chip-cobrado{background:var(--green-tint);color:var(--green-dark);font-size:11px;padding:2px 8px;border-radius:999px;font-weight:700;white-space:nowrap;}
+  .chip-entregue{background:#E6E9EF;color:var(--ink-soft);}
+  nav a{padding:8px 14px;border-radius:8px;font-weight:600;font-size:13px;opacity:0.85;text-decoration:none;}
+  nav a.active{background:rgba(255,255,255,0.18);font-weight:700;opacity:1;}
+  table{width:100%;border-collapse:collapse;}
+  th{text-align:left;font-size:11px;font-weight:700;color:var(--ink-soft);text-transform:uppercase;padding:10px 12px;border-bottom:1px solid var(--border);}
+  td{padding:12px;border-bottom:1px solid var(--border);font-size:13px;}
+  tr:hover td{background:#F5F8FD;}
+  .modal-backdrop{position:fixed;inset:0;background:rgba(44,42,34,0.35);display:flex;align-items:center;justify-content:center;z-index:50;}
+  .modal{background:#fff;border-radius:14px;padding:28px;width:480px;max-width:90vw;display:flex;flex-direction:column;gap:14px;max-height:85vh;overflow:auto;}
+  .imp-linha.invalida{border:2px solid var(--terracota-dark) !important;background:var(--terracota-tint);}
+  .imp-linha.invalida input[id^="imp-cliente-"], .imp-linha.invalida input[id^="cor-cliente-"]{border-color:var(--terracota-dark);}
+  .fab{position:fixed;bottom:28px;right:28px;background:var(--terracota-dark);color:#fff;border-radius:999px;padding:14px 22px;font-weight:700;font-size:14px;box-shadow:0 10px 24px rgba(168,79,48,0.35);z-index:20;}
+  .btn-instalar{width:100%;background:linear-gradient(135deg,var(--marca) 0%,var(--marca-dark) 100%);color:#fff;font-weight:800;font-size:15px;letter-spacing:.4px;padding:14px 16px;border-radius:10px;border:1px solid rgba(255,255,255,.25);box-shadow:0 6px 18px rgba(74,127,214,.45);animation:pulso-instalar 2s infinite;}
+  @keyframes pulso-instalar{0%{box-shadow:0 0 0 0 rgba(74,127,214,.55),0 6px 18px rgba(74,127,214,.4);}70%{box-shadow:0 0 0 14px rgba(74,127,214,0),0 6px 18px rgba(74,127,214,.4);}100%{box-shadow:0 0 0 0 rgba(74,127,214,0),0 6px 18px rgba(74,127,214,.4);}}
+</style>
+</head>
+<body>
+<div id="app">Carregando…</div>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
+import {
+  getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, query, where, getDocs
+} from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+import {
+  getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut
+} from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
+// A biblioteca de PDF (pdf.js) é carregada só na hora do upload (ver carregarPdfjs):
+// se ela falhar num computador, o resto do app continua funcionando.
+
+// Versão visível no app (login e rodapé) — ajuda a saber, por um print, qual versão a loja está usando
+const VERSAO_APP = '2026-10-20';
+// Desde quando o app registra as atividades das lojas (antes disso, a aba Equipes usa só o que está nos pedidos)
+const INICIO_REGISTRO = '2026-10-20';
+
+// ---------- MARCA: tudo que muda de um grupo de lojas para outro ----------
+const MARCA = {
+  nome: 'Centro Ótico',
+  logo: 'logo-branco.png',            // logo branca (aparece sobre o azul escuro)
+  // Cada loja tem uma conta de login no Firebase com o e-mail  <slug>@<dominioEmail>
+  // (ex.: marica@controle.example.com). O "domínio" é só um nome: nenhum e-mail é enviado.
+  dominioEmail: 'controle.example.com',
+  // Contas de administrador (veem todas as lojas): <nome>@<dominioEmail>. As regras do Firestore
+  // (firestore.rules) têm a MESMA lista: se mudar aqui, mude lá também.
+  admins: ['admin'],
+  enderecoOficial: '',                // ex.: 'usuario.github.io' (preencha depois de publicar; vazio = sem aviso de cópia)
+  lojas: [
+    // nome = como aparece e como fica gravado em cada pedido · slug = parte do e-mail de login
+    // msg = como a loja se apresenta ao laboratório no WhatsApp · pdf = trecho do cabeçalho do relatório (SSOtica)
+    { nome: 'Maricá',    slug: 'marica',   msg: 'C.O Maricá',   pdf: /maric/i },
+    { nome: 'Art Ótica', slug: 'art',      msg: 'Art Ótica SG', pdf: /\bart\W+.?tica/i },
+    { nome: 'Itaboraí',  slug: 'itaborai', msg: 'C.O Itaboraí', pdf: /itabora/i },
+    { nome: 'Tanguá',    slug: 'tangua',   msg: 'C.O Tanguá',   pdf: /tangu/i }
+  ]
+};
+
+// ---------- config do Firebase (projeto NOVO deste grupo; veja o LEIA-ME) ----------
+const firebaseConfig = {
+  apiKey: "COLE_AQUI_apiKey",
+  authDomain: "COLE_AQUI.firebaseapp.com",
+  projectId: "COLE_AQUI",
+  storageBucket: "COLE_AQUI.firebasestorage.app",
+  messagingSenderId: "COLE_AQUI",
+  appId: "COLE_AQUI"
+};
+const FIREBASE_PENDENTE = /COLE_AQUI/.test(firebaseConfig.apiKey);
+let firebaseApp = null, fs = null, auth = null;
+if (!FIREBASE_PENDENTE){
+  firebaseApp = initializeApp(firebaseConfig);
+  fs = getFirestore(firebaseApp);
+  auth = getAuth(firebaseApp);
+}
+
+// navegadores mais antigos não têm Promise.withResolvers, que o pdf.js usa
+if (typeof Promise.withResolvers !== 'function'){
+  Promise.withResolvers = function(){
+    var resolve, reject;
+    var promise = new Promise(function(res, rej){ resolve = res; reject = rej; });
+    return { promise: promise, resolve: resolve, reject: reject };
+  };
+}
+
+// sem internet o Firebase segura a gravação indefinidamente; aqui ela desiste e avisa
+var MSG_SEM_CONEXAO = 'O servidor não respondeu a tempo. Verifique a internet e tente de novo — o que já foi salvo não será duplicado.';
+function comTempoLimite(promise, ms, mensagem){
+  return new Promise(function(resolve, reject){
+    var t = setTimeout(function(){ reject(new Error(mensagem)); }, ms);
+    promise.then(function(v){ clearTimeout(t); resolve(v); }, function(e){ clearTimeout(t); reject(e); });
+  });
+}
+function gravar(ref, dados, opcoes){
+  return comTempoLimite(opcoes ? setDoc(ref, dados, opcoes) : setDoc(ref, dados), 20000, MSG_SEM_CONEXAO);
+}
+function apagar(ref){
+  return comTempoLimite(deleteDoc(ref), 20000, MSG_SEM_CONEXAO);
+}
+// gera o id do documento antes de gravar: se a pessoa tentar de novo, grava no mesmo lugar em vez de duplicar
+function novoIdPedido(){
+  return doc(collection(fs, 'pedidos')).id;
+}
+
+(function(){
+  var state = {
+    view: 'dashboard',
+    selectedId: null,
+    filter: 'todos',
+    adminLojaFiltro: 'todas',
+    session: null,
+    loginForm: { role: 'loja', loja: MARCA.lojas[0].nome, usuario: 'admin', codigo: '' },
+    loginError: null,
+    modal: null,
+    novoForm: {},
+    contatoForm: {},
+    contatoAction: null,
+    destaqueAction: null,
+    destaqueForm: {},
+    modoEdicao: false,
+    pdfProcessando: false,
+    pdfError: null,
+    pdfCandidatos: [],
+    saving: false,
+    error: null,
+    dbReady: false
+  };
+  var pedidosCache = [];
+  var configCache = { codigosLabs: {}, ultimaImportacao: {} };
+  // LOJAS = lojas que esta sessão enxerga (admin: todas; loja: só a dela). LOJAS_TODAS = as 4 do grupo.
+  var LOJAS_TODAS = MARCA.lojas.map(function(l){ return l.nome; });
+  var LOJAS = LOJAS_TODAS.slice();
+  function lojaPorNome(nome){ return MARCA.lojas.filter(function(l){ return l.nome === nome; })[0] || null; }
+  function lojaPorSlug(slug){ return MARCA.lojas.filter(function(l){ return l.slug === slug; })[0] || null; }
+  var LABORATORIOS_FIXOS = ['Orgalent - Essilor', 'Hoya', 'Zeiss', 'Rodenstock', 'Visco', 'Imperiallab', 'Digilab', 'Jefferson (serviços menores)'];
+
+  function escopoPedidos(){
+    if (!state.session) return [];
+    if (state.session.role === 'admin'){
+      if (state.adminLojaFiltro && state.adminLojaFiltro !== 'todas'){
+        return pedidosCache.filter(function(p){ return p.loja === state.adminLojaFiltro; });
+      }
+      return pedidosCache;
+    }
+    return pedidosCache.filter(function(p){ return p.loja === state.session.loja; });
+  }
+
+  function toISO(d){
+    var y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), day=String(d.getDate()).padStart(2,'0');
+    return y+'-'+m+'-'+day;
+  }
+  function todayStr(){
+    var d = new Date();
+    return new Intl.DateTimeFormat('en-CA', {timeZone:'America/Sao_Paulo', year:'numeric', month:'2-digit', day:'2-digit'}).format(d);
+  }
+  // Uma data vazia ou inválida faria os laços abaixo rodarem para sempre e congelar a tela da loja.
+  // Com data inválida as contas devolvem a própria data / 0, sem travar.
+  function dataValida(s){ return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(new Date(s + 'T00:00:00')); }
+  function addBusinessDays(dateStr, n){
+    if (!dataValida(dateStr)) return dateStr || '';
+    n = Math.min(Math.max(parseInt(n, 10) || 0, 0), 2000);
+    var d = new Date(dateStr + 'T00:00:00');
+    var added = 0;
+    while (added < n){
+      d.setDate(d.getDate()+1);
+      var day = d.getDay();
+      if (day !== 0 && day !== 6) added++;
+    }
+    return toISO(d);
+  }
+  function subBusinessDays(dateStr, n){
+    if (!dataValida(dateStr)) return dateStr || '';
+    n = Math.min(Math.max(parseInt(n, 10) || 0, 0), 2000);
+    var d = new Date(dateStr + 'T00:00:00');
+    var sub = 0;
+    while (sub < n){
+      d.setDate(d.getDate()-1);
+      var day = d.getDay();
+      if (day !== 0 && day !== 6) sub++;
+    }
+    return toISO(d);
+  }
+  function businessDaysBetween(fromStr, toStr){
+    if (!dataValida(fromStr) || !dataValida(toStr)) return 0;
+    var from = new Date(fromStr + 'T00:00:00');
+    var to = new Date(toStr + 'T00:00:00');
+    var sign = to >= from ? 1 : -1;
+    var count = 0;
+    var d = new Date(from);
+    while (toISO(d) !== toISO(to)){
+      d.setDate(d.getDate()+sign);
+      var day = d.getDay();
+      if (day !== 0 && day !== 6) count += sign;
+    }
+    return count;
+  }
+  function fmtDate(iso){
+    if(!iso) return '—';
+    var parts = iso.split('-');
+    return parts[2] + '/' + parts[1];
+  }
+  function escapeHtml(s){
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+    });
+  }
+
+  // Status do pedido. "Atrasado" = passou da previsão VIGENTE (o novo prazo do laboratório, se houver;
+  // senão a previsão original). Os Relatórios continuam medindo o atraso pela previsão original.
+  function pedidoStatus(p, hojeTeste){
+    if (p.entregue) return { status: 'entregue' };
+    var hojeS = typeof hojeTeste === 'string' ? hojeTeste : todayStr(); // (map() passa o índice como 2º argumento)
+    if (p.areaDestaque) {
+      var nova = p.contato && p.contato.novaPrevisao;
+      if (dataValida(nova) && hojeS > nova) return { status: 'atrasado', previsao: nova, novoPrazo: true, atraso: businessDaysBetween(nova, hojeS) };
+      return { status: 'destaque', previsao: nova, novoPrazo: true, diasRestantes: dataValida(nova) ? businessDaysBetween(hojeS, nova) : null };
+    }
+    if (dataValida(p.previsaoOriginal) && hojeS > p.previsaoOriginal){
+      return { status: 'atrasado', previsao: p.previsaoOriginal, atraso: businessDaysBetween(p.previsaoOriginal, hojeS), checkUrgencia: checkpointUrgencia(p) };
+    }
+    var checkAtencao, checkUrgencia;
+    if (p.tipo === 'especial') {
+      var prazoDias = p.prazoDias || businessDaysBetween(p.dataPedido, p.previsaoOriginal);
+      checkUrgencia = subBusinessDays(p.previsaoOriginal, prazoDias > 3 ? 2 : 1);
+      checkAtencao = subBusinessDays(p.previsaoOriginal, prazoDias > 3 ? Math.ceil(prazoDias / 2) : (prazoDias > 1 ? 1 : 0));
+    } else {
+      checkAtencao = addBusinessDays(p.dataPedido, p.tipo === 'pronta' ? 3 : 5);
+      checkUrgencia = subBusinessDays(p.previsaoOriginal, 2);
+    }
+    var hoje = hojeS;
+    var status = 'ok';
+    if (hoje >= checkUrgencia) status = 'urgente';
+    else if (hoje >= checkAtencao) status = 'atencao';
+    var diasRestantes = businessDaysBetween(hoje, p.previsaoOriginal);
+    return { status: status, previsao: p.previsaoOriginal, checkAtencao: checkAtencao, checkUrgencia: checkUrgencia, diasRestantes: diasRestantes };
+  }
+
+  function statusLabel(s){
+    return { ok: 'No prazo', atencao: 'Atenção', urgente: 'Urgente', destaque: 'Em destaque', atrasado: 'Atrasado', entregue: 'Entregue' }[s] || s;
+  }
+  function statusChipClass(s){
+    return { ok: 'chip-ok', atencao: 'chip-atencao', urgente: 'chip-urgente', destaque: 'chip-destaque', atrasado: 'chip-atrasado', entregue: 'chip-entregue' }[s] || 'chip-ok';
+  }
+
+  // (O botão individual "Cobrar no WhatsApp" saiu em 15/10/2026: a cobrança agora é em lote, por
+  // laboratório, em "Cobrar laboratórios" — o time copia a mensagem e cola na conversa.)
+
+  // Já aconteceu de uma loja usar uma cópia antiga (arquivo salvo, outro site ou aba aberta há dias)
+  // enquanto o site tinha a versão corrigida. O app agora avisa nesses casos.
+  var ENDERECO_OFICIAL = MARCA.enderecoOficial || '';
+  function verificarVersao(){
+    var h = location.hostname;
+    if (h === 'localhost' || h === '127.0.0.1') return;
+    if (ENDERECO_OFICIAL && (location.protocol === 'file:' || h !== ENDERECO_OFICIAL)){
+      if (state.avisoVersao !== 'copia'){ state.avisoVersao = 'copia'; render(); }
+      return;
+    }
+    if (location.protocol === 'file:') return;
+    fetch(location.pathname + '?v=' + Date.now(), { cache: 'no-store' }).then(function(r){ return r.text(); }).then(function(html){
+      var m = html.match(/VERSAO_APP = '([^']+)'/);
+      if (m && m[1] !== VERSAO_APP && state.avisoVersao !== 'nova'){ state.avisoVersao = 'nova'; state.versaoNova = m[1]; render(); }
+    }).catch(function(){});
+  }
+  function avisoVersaoHtml(){
+    if (state.avisoVersao === 'copia') return '<div style="background:var(--terracota-dark);color:#fff;padding:10px 16px;font-size:13px;font-weight:700;text-align:center;">⚠ Esta é uma cópia do app fora do endereço oficial e pode estar desatualizada. Use sempre <a href="https://' + ENDERECO_OFICIAL + '" style="color:#fff;text-decoration:underline;">' + ENDERECO_OFICIAL + '</a></div>';
+    if (state.avisoVersao === 'nova') return '<div style="background:var(--amber-tint);color:var(--amber-dark);padding:10px 16px;font-size:13px;font-weight:700;text-align:center;">Há uma versão nova do app (' + escapeHtml(state.versaoNova || '') + '). <button id="btn-atualizar-app" style="font-weight:800;text-decoration:underline;color:inherit;">Clique para atualizar</button></div>';
+    return '';
+  }
+
+  // ---------- login (Firebase Auth) e assinaturas dos dados ----------
+  var unsubs = [];
+  function cancelarAssinaturas(){
+    unsubs.forEach(function(u){ try{ u(); }catch(e){} });
+    unsubs = [];
+    pedidosCache = [];
+    configCache = { codigosLabs: {}, ultimaImportacao: {} };
+  }
+  // quem é a pessoa logada, a partir do e-mail da conta (a regra de verdade está em firestore.rules)
+  function sessaoDoEmail(email){
+    var pref = String(email || '').toLowerCase().split('@')[0];
+    if (MARCA.admins.indexOf(pref) >= 0) return { role: 'admin', email: email };
+    var l = lojaPorSlug(pref);
+    return l ? { role: 'loja', loja: l.nome, email: email } : null;
+  }
+  // O servidor só entrega o que a conta pode ver: loja => só pedidos com loja == a dela; admin => tudo.
+  function assinarDados(){
+    var admin = state.session.role === 'admin';
+    var colPedidos = collection(fs, 'pedidos');
+    var qPedidos = admin ? colPedidos : query(colPedidos, where('loja', '==', state.session.loja));
+    unsubs.push(onSnapshot(qPedidos, function(snap){
+      pedidosCache = snap.docs.map(function(d){ return Object.assign({ id: d.id }, d.data()); });
+      state.dbReady = true;
+      renderDoBanco();
+    }, function(err){
+      state.error = 'Erro ao carregar pedidos: ' + err.message;
+      state.dbReady = true;
+      render();
+    }));
+    var aoReceberConfig = function(docs){
+      var c = { codigosLabs: {}, ultimaImportacao: {} };
+      docs.forEach(function(d){
+        var l = lojaPorSlug(d.id); if (!l) return;
+        var v = d.data() || {};
+        c.codigosLabs[l.nome] = v.codigosLabs || {};
+        if (v.ultimaImportacao) c.ultimaImportacao[l.nome] = v.ultimaImportacao;
+      });
+      configCache = c;
+      renderDoBanco();
+    };
+    var erroConfig = function(err){ state.error = 'Erro ao carregar configurações: ' + err.message; render(); };
+    if (admin){
+      unsubs.push(onSnapshot(collection(fs, 'configLoja'), function(snap){ aoReceberConfig(snap.docs); }, erroConfig));
+    } else {
+      unsubs.push(onSnapshot(doc(fs, 'configLoja', lojaPorNome(state.session.loja).slug), function(snap){
+        aoReceberConfig(snap.exists() ? [snap] : []);
+      }, erroConfig));
+    }
+  }
+
+  function init(){
+    render();
+    if (FIREBASE_PENDENTE){
+      state.error = 'Falta configurar o Firebase deste grupo (firebaseConfig no começo do arquivo index.html). Veja o LEIA-ME.';
+      state.dbReady = true; render(); return;
+    }
+    verificarVersao();
+    setInterval(verificarVersao, 10 * 60 * 1000);
+    // aba que fica aberta de um dia para o outro: o acesso do dia novo conta no primeiro clique ou tecla,
+    // e não à meia-noite — assim o horário de abertura mostrado ao admin é o de quem realmente começou a usar
+    document.addEventListener('pointerdown', registrarAcesso, true);
+    document.addEventListener('keydown', registrarAcesso, true);
+    onAuthStateChanged(auth, function(user){
+      cancelarAssinaturas();
+      var s = user ? sessaoDoEmail(user.email) : null;
+      if (user && !s){
+        state.loginError = 'Este usuário não está liberado para nenhuma loja.';
+        signOut(auth).catch(function(){});
+      }
+      if (s){
+        state.session = s;
+        LOJAS = s.role === 'admin' ? LOJAS_TODAS.slice() : [s.loja];
+        state.error = null;
+        state.dbReady = false;
+        render();
+        assinarDados();
+        registrarAcesso();
+      } else {
+        state.session = null;
+        LOJAS = LOJAS_TODAS.slice();
+        state.view = 'dashboard'; state.selectedId = null; state.modal = null; state.adminLojaFiltro = 'todas';
+        state.equipes = null;
+        state.dbReady = true;
+        render();
+      }
+    });
+  }
+
+  // ---------- actions ----------
+  // 0 → A, 1 → B, … 25 → Z, 26 → AA
+  function letraIndice(i){
+    var s = '';
+    i = i + 1;
+    while (i > 0){ var r = (i - 1) % 26; s = String.fromCharCode(65 + r) + s; i = Math.floor((i - 1) / 26); }
+    return s;
+  }
+  // Como a loja numera os óculos de uma mesma OS: o 1º é o próprio número (8751),
+  // o 2º é 8751A, o 3º 8751B… (sem espaço)
+  function codigoDoItem(numeroOS, posicao){
+    var base = String(numeroOS || '').trim();
+    return posicao === 0 ? base : base + letraIndice(posicao - 1);
+  }
+  function gerarItens(numeroOS, quantidade){
+    var qtd = Math.max(1, parseInt(quantidade, 10) || 1);
+    var itens = [];
+    for (var i = 0; i < qtd; i++){
+      itens.push({
+        codigo: codigoDoItem(numeroOS, i),
+        entregue: false,
+        dataEntrega: null
+      });
+    }
+    return itens;
+  }
+
+  // ---------- registro de atividades (aba Equipes) ----------
+  // Cada ação vira um registro em "atividades": loja, tipo, OS, dia e hora. Só a loja — nunca a pessoa.
+  // "por" diz se foi o login da loja ou o admin; o índice da equipe só conta ações da loja.
+  // Falhar aqui nunca atrapalha a ação da loja.
+  function registrarAtividade(tipo, p, extra){
+    try{
+      if (!state.session) return;
+      var porAdmin = state.session.role === 'admin';
+      var loja = p ? p.loja : state.session.loja;
+      if (!loja) return;
+      var dados = Object.assign({ tipo: tipo, loja: loja, por: porAdmin ? 'admin' : 'loja', dia: todayStr(), quando: new Date().toISOString() },
+        p ? { pedidoId: p.id, os: p.numeroOS || '' } : {}, extra || {});
+      setDoc(doc(collection(fs, 'atividades')), dados).catch(function(){});
+    } catch(e){}
+  }
+  // "Último upload" que a loja vê ao lado da busca. Fica em configLoja/<loja> (que todo login já
+  // carrega). A loja é a do relatório; sem ela, a do login. PDF sem nenhuma OS lida não conta.
+  function registrarUltimaImportacao(diag){
+    try{
+      if (!state.session || !diag || !diag.osNoPdf || !diag.dataMin) return;
+      var loja = state.pdfLoja || (state.session.role === 'loja' ? state.session.loja : null);
+      if (!loja) return;
+      var info = { dia: todayStr(), quando: new Date().toISOString(), dataMin: diag.dataMin, dataMax: diag.dataMax, osNoPdf: diag.osNoPdf };
+      var ult = {}; ult[loja] = info;
+      configCache.ultimaImportacao = Object.assign({}, configCache.ultimaImportacao || {}, ult);
+      setDoc(doc(fs, 'configLoja', lojaPorNome(loja).slug), { ultimaImportacao: info }, { merge: true }).catch(function(){});
+    } catch(e){}
+  }
+
+  // um "acesso" por loja por dia: ao abrir/entrar no app, ou no 1º clique do dia numa aba que ficou aberta.
+  // O horário ("quando") desse registro é o que o admin vê em Equipes → "Quem abriu o app".
+  function registrarAcesso(){
+    if (!state.session || state.session.role !== 'loja') return;
+    var chave = 'co_acesso_' + state.session.loja + '_' + todayStr();
+    try{ if (localStorage.getItem(chave)) return; localStorage.setItem(chave, '1'); } catch(e){}
+    registrarAtividade('acesso');
+  }
+
+  async function criarPedido(form){
+    var faltando = !form.cliente ? 'o nome do cliente' : !form.dataPedido ? 'a data do pedido' : !form.loja ? 'a loja' : (form.tipo === 'especial' && !form.prazoDias) ? 'o prazo especial (dias úteis)' : null;
+    if (faltando){ state.novoForm.erro = 'Preencha ' + faltando + '.'; render(); return; }
+    state.novoForm.erro = null;
+    state.saving = true; render();
+    var prazoDias = form.tipo === 'especial' ? parseInt(form.prazoDias, 10) : (form.tipo === 'pronta' ? 7 : 10);
+    var previsaoOriginal = addBusinessDays(form.dataPedido, prazoDias);
+    var itens = gerarItens(form.numeroOS, form.quantidade);
+    if (!state.novoForm._docId) state.novoForm._docId = novoIdPedido();
+    try{
+      await gravar(doc(fs, 'pedidos', state.novoForm._docId), {
+        cliente: form.cliente,
+        numeroOS: form.numeroOS || '',
+        quantidade: itens.length,
+        itens: itens,
+        tipo: form.tipo,
+        loja: form.loja,
+        laboratorio: form.laboratorio || 'Não informado',
+        dataPedido: form.dataPedido,
+        previsaoOriginal: previsaoOriginal,
+        prazoDias: form.tipo === 'especial' ? prazoDias : null,
+        entregue: false,
+        areaDestaque: false,
+        contato: null,
+        lembretes: {},
+        historico: {},
+        criadoEm: todayStr()
+      });
+      registrarAtividade('novo_pedido', { id: state.novoForm._docId, loja: form.loja, numeroOS: form.numeroOS });
+      state.modal = null; state.novoForm = {};
+    } catch(e){ state.novoForm.erro = 'Não foi possível salvar: ' + e.message; }
+    state.saving = false; render();
+  }
+
+  function itensDoPedido(p){
+    if (p.itens && p.itens.length) return p.itens;
+    return [{ codigo: p.numeroOS || '', entregue: !!p.entregue, dataEntrega: p.dataEntrega || null }];
+  }
+
+  async function marcarItemEntregue(pedidoId, idx, chegou){
+    var p = pedidosCache.find(function(x){ return x.id === pedidoId; });
+    if (!p) return;
+    state.saving = true; render();
+    try{
+      var itens = itensDoPedido(p).map(function(it, i){
+        if (i !== idx) return it;
+        return Object.assign({}, it, { entregue: chegou, dataEntrega: chegou ? todayStr() : null });
+      });
+      var todosEntregues = itens.every(function(it){ return it.entregue; });
+      var patch = { itens: itens, quantidade: itens.length };
+      if (todosEntregues){
+        patch.entregue = true; patch.dataEntrega = todayStr(); patch.areaDestaque = false;
+      } else if (p.entregue) {
+        patch.entregue = false; patch.dataEntrega = null;
+      }
+      await gravar(doc(fs, 'pedidos', pedidoId), patch, { merge: true });
+      if (chegou) registrarAtividade('chegou', p);
+    } catch(e){ state.error = e.message; }
+    state.saving = false; render();
+  }
+
+  async function marcarMesmoPrazo(id){
+    state.saving = true; render();
+    try{
+      await gravar(doc(fs, 'pedidos', id), { contato: { tipo: 'mesmo', registradoEm: todayStr() } }, { merge: true });
+      registrarAtividade('contato_mesmo', pedidosCache.find(function(x){ return x.id === id; }));
+    } catch(e){ state.error = e.message; }
+    state.saving = false; state.contatoAction = null; render();
+  }
+
+  async function marcarNovoPrazo(id, form){
+    if (!form.novaData) return;
+    state.saving = true; render();
+    try{
+      await gravar(doc(fs, 'pedidos', id), {
+        contato: { tipo: 'novo', novaPrevisao: form.novaData, observacao: form.observacao || '', registradoEm: todayStr() },
+        areaDestaque: true
+      }, { merge: true });
+      registrarAtividade('contato_novo', pedidosCache.find(function(x){ return x.id === id; }), { novaPrevisao: form.novaData });
+      state.contatoAction = null; state.contatoForm = {};
+    } catch(e){ state.error = e.message; }
+    state.saving = false; render();
+  }
+
+  async function marcarEntregue(id){
+    var p = pedidosCache.find(function(x){ return x.id === id; });
+    if (!p) return;
+    state.saving = true; render();
+    try{
+      var hoje = todayStr();
+      var itens = itensDoPedido(p).map(function(it){ return Object.assign({}, it, { entregue: true, dataEntrega: it.dataEntrega || hoje }); });
+      await gravar(doc(fs, 'pedidos', id), { entregue: true, dataEntrega: hoje, areaDestaque: false, itens: itens, quantidade: itens.length }, { merge: true });
+      registrarAtividade('chegou', p);
+    } catch(e){ state.error = e.message; }
+    state.saving = false; render();
+  }
+
+  async function marcarContatoHoje(id, observacao){
+    state.saving = true; render();
+    try{
+      var hoje = todayStr();
+      var lembretes = {}; lembretes[hoje] = true;
+      var historico = {}; historico[hoje] = { observacao: observacao || '', registradoEm: hoje };
+      await gravar(doc(fs, 'pedidos', id), { lembretes: lembretes, historico: historico }, { merge: true });
+      registrarAtividade('contato_destaque', pedidosCache.find(function(x){ return x.id === id; }));
+      state.destaqueAction = null; state.destaqueForm = {};
+    } catch(e){ state.error = e.message; }
+    state.saving = false; render();
+  }
+
+  async function editarPedido(id, dados){
+    var p = pedidosCache.find(function(x){ return x.id === id; });
+    // trocou o Nº OS: renumera os óculos pela posição, mantendo o que já chegou
+    if (p && p.itens && p.itens.length && dados.numeroOS !== (p.numeroOS || '')){
+      dados.itens = p.itens.map(function(it, i){ return Object.assign({}, it, { codigo: codigoDoItem(dados.numeroOS, i) }); });
+    }
+    state.saving = true; render();
+    try{
+      await gravar(doc(fs, 'pedidos', id), dados, { merge: true });
+      state.modoEdicao = false;
+    } catch(e){ state.error = e.message; }
+    state.saving = false; render();
+  }
+
+  async function excluirPedido(id){
+    var p = pedidosCache.find(function(x){ return x.id === id; });
+    if (!p) return;
+    if (state.session.role !== 'admin' && p.loja !== state.session.loja) return;
+    state.saving = true; render();
+    try{
+      await apagar(doc(fs, 'pedidos', id));
+      registrarAtividade('exclusao', p, { cliente: p.cliente || '' });
+      state.saving = false;
+      state.confirmarExclusao = false;
+      setView('dashboard');
+    } catch(e){ state.error = e.message; state.saving = false; render(); }
+  }
+
+  // ---------- importação de PDF (SSOtica) ----------
+  async function processarPdf(file){
+    state.pdfProcessando = true; state.pdfError = null; state.importedJustNow = false; render();
+    try{
+      var linhas = await comTempoLimite(lerLinhasPdf(file), 60000,
+        'a leitura passou de 1 minuto e foi cancelada. Tente de novo; se continuar, atualize o navegador (Chrome ou Edge) deste computador.');
+      state.pdfCandidatos = extrairCandidatosPdf(linhas);
+      registrarAtividade('importacao', null, { osNoPdf: (state.pdfDiag && state.pdfDiag.osNoPdf) || 0, lojaDoPdf: state.pdfLoja || '' });
+      registrarUltimaImportacao(state.pdfDiag);
+      state.pdfProcessando = false;
+      state.modal = 'importarPdf';
+      render();
+    } catch(e){
+      state.pdfError = 'Não foi possível ler o PDF: ' + e.message;
+      state.pdfProcessando = false;
+      render();
+    }
+  }
+
+  // ==== LEITOR-PDF-INICIO ==== (testes/teste-leitor.html roda este trecho com os PDFs reais das lojas)
+
+  // Tenta, em ordem: versão moderna, versão para navegadores antigos, e outro site (se a rede bloquear o 1º)
+  var FONTES_PDFJS = [
+    'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.379/build/',
+    'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.379/legacy/build/',
+    'https://unpkg.com/pdfjs-dist@4.0.379/legacy/build/'
+  ];
+  var pdfjsCarregando = null;
+  function navegadorTxt(){
+    var m = navigator.userAgent.match(/(Edg|OPR|Chrome|Firefox|Version)\/(\d+)/);
+    return m ? (m[1] === 'Edg' ? 'Edge' : m[1] === 'Version' ? 'Safari' : m[1]) + ' ' + m[2] : navigator.userAgent;
+  }
+  function carregarPdfjs(){
+    if (pdfjsCarregando) return pdfjsCarregando;
+    pdfjsCarregando = (async function(){
+      var erros = [];
+      for (var i = 0; i < FONTES_PDFJS.length; i++){
+        try{
+          var lib = await import(FONTES_PDFJS[i] + 'pdf.min.mjs');
+          lib.GlobalWorkerOptions.workerSrc = FONTES_PDFJS[i] + 'pdf.worker.min.mjs';
+          return lib;
+        } catch(e){ erros.push(e && e.message || String(e)); }
+      }
+      throw new Error('o leitor de PDF não carregou neste computador (navegador: ' + navegadorTxt() + '). Atualize o Chrome/Edge ou verifique a internet. Detalhe: ' + erros[0]);
+    })();
+    pdfjsCarregando.catch(function(){ pdfjsCarregando = null; }); // permite tentar de novo
+    return pdfjsCarregando;
+  }
+
+  async function lerLinhasPdf(file, libTeste){
+      var pdfjsLib = libTeste || await carregarPdfjs();
+      var buf = await file.arrayBuffer();
+      var pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+      var linhas = []; // cada item: lista de {x, texto} de uma mesma linha visual do PDF
+      for (var pageNum = 1; pageNum <= pdf.numPages; pageNum++){
+        var page = await pdf.getPage(pageNum);
+        var content = await page.getTextContent();
+        var porY = {};
+        content.items.forEach(function(item){
+          var y = Math.round(item.transform[5]);
+          if (!porY[y]) porY[y] = [];
+          porY[y].push({ x: item.transform[4], texto: item.str });
+        });
+        var ys = Object.keys(porY).map(Number).sort(function(a,b){ return b - a; });
+        ys.forEach(function(y){
+          var itens = porY[y].sort(function(a,b){ return a.x - b.x; }).filter(function(it){ return it.texto && it.texto.trim(); });
+          if (itens.length) linhas.push(itens);
+        });
+      }
+      return linhas;
+  }
+
+  // mapeia os nomes das seções de laboratório do relatório do SSOtica para os nossos laboratórios fixos
+  var MAPA_LAB_PDF = [
+    { re: /imperial/i, lab: 'Imperiallab' },
+    { re: /hoya/i, lab: 'Hoya' },
+    { re: /zeiss/i, lab: 'Zeiss' },
+    { re: /rodenstock/i, lab: 'Rodenstock' },
+    { re: /visco/i, lab: 'Visco' },
+    { re: /digilab/i, lab: 'Digilab' },
+    { re: /orgalent/i, lab: 'Orgalent - Essilor' },
+    { re: /jefferson/i, lab: 'Jefferson (serviços menores)' }
+  ];
+  // marcadores usados para reconhecer cada coluna da tabela pelo texto do cabeçalho
+  var COLUNAS_MARCADORES = [
+    { key: 'data', re: /^data/i },
+    { key: 'nro', re: /^nro/i },
+    { key: 'cod', re: /cod\.?\s*ext/i },
+    { key: 'filial', re: /filial/i },
+    { key: 'cliente', re: /^cliente/i },
+    { key: 'bruto', re: /bruto/i },
+    { key: 'acre', re: /acre|desc/i },
+    { key: 'liq', re: /liq/i },
+    { key: 'adiant', re: /adiant|a\s*rec/i }
+  ];
+
+  // Lê o relatório de ordens de serviço olhando a posição (x) de cada texto no PDF para
+  // reconstruir as colunas da tabela (Data, Nº OS, Cliente, etc), já que o texto puro,
+  // lido em sequência, mistura as colunas quando o nome do cliente quebra em duas linhas.
+  function clienteSemNome(nome){
+    return !nome || /verificar no relat|cliente n[ãa]o identificado/i.test(nome);
+  }
+
+  function extrairCandidatosPdf(linhas){
+    var labAtual = 'Não informado';
+    var colunas = null; // [{key,x}] ordenado por x, aprendido a partir da linha de cabeçalho da tabela
+    // o cabeçalho do relatório diz de qual loja ele é (ex.: "Centro Ótico Maricá"); a numeração de OS é por loja
+    var lojaPdf = null;
+    // só olha as primeiras linhas (cabeçalho), para não confundir com endereço de cliente
+    linhas.slice(0, 25).some(function(itens){
+      var t = itens.map(function(it){ return it.texto; }).join(' ');
+      // tolerante a acentos que o PDF às vezes transforma em outros caracteres ("Maric?", "Tangu?")
+      for (var k = 0; k < MARCA.lojas.length; k++){
+        if (MARCA.lojas[k].pdf.test(t)){ lojaPdf = MARCA.lojas[k].nome; break; }
+      }
+      return !!lojaPdf;
+    });
+    state.pdfLoja = lojaPdf;
+    var existentes = {};
+    pedidosCache.forEach(function(p){
+      if (!p.numeroOS) return;
+      if (lojaPdf && p.loja !== lojaPdf) return;
+      existentes[String(p.numeroOS)] = p;
+    });
+    var correcoes = [];
+    state.pdfCorrecoes = correcoes;
+    var encontrados = [];
+    var linhaAtual = null;
+    var diag = { linhasTexto: linhas.length, cabecalho: false, osNoPdf: 0, jaExistentes: 0 };
+    state.pdfDiag = diag;
+
+    // Números (Nº OS, valores) são alinhados à direita no SSOtica e podem começar um pouco
+    // antes do título da coluna; por isso cada coluna começa até 10pt antes do seu título
+    // (sem passar da metade do caminho até a coluna anterior).
+    function coluna(x){
+      var achada = null;
+      for (var i = 0; i < colunas.length; i++){
+        var folga = i > 0 ? Math.min(10, (colunas[i].x - colunas[i-1].x) / 2) : 10;
+        if (x + 0.5 >= colunas[i].x - folga) achada = colunas[i]; else break;
+      }
+      return achada ? achada.key : null;
+    }
+
+    function fecharLinhaAtual(){
+      if (!linhaAtual) return;
+      var mNro = (linhaAtual.nro || '').match(/(\d{3,7})/);
+      var mData = (linhaAtual.data || '').match(/(\d{2}\/\d{2}\/\d{4})/);
+      if (mNro && mData){
+        var os = mNro[1];
+        diag.osNoPdf++;
+        // período das OS do relatório (mostrado como "Último upload … OS de X a Y")
+        var dataIso = mData[1].split('/').reverse().join('-');
+        if (!diag.dataMin || dataIso < diag.dataMin) diag.dataMin = dataIso;
+        if (!diag.dataMax || dataIso > diag.dataMax) diag.dataMax = dataIso;
+        if (existentes[os]){
+          diag.jaExistentes++;
+          // pedido já cadastrado sem nome do cliente: oferece corrigir com o nome lido agora
+          var nomeLido = (linhaAtual.cliente || '').replace(/\s+/g, ' ').trim();
+          var pExistente = existentes[os];
+          if (nomeLido && clienteSemNome(pExistente.cliente) && !correcoes.some(function(c){ return c.id === pExistente.id; })){
+            correcoes.push({ id: pExistente.id, numeroOS: os, clienteAtual: pExistente.cliente || '', cliente: nomeLido, incluir: true });
+          }
+        }
+        if (!existentes[os] && !encontrados.some(function(r){ return r.numeroOS === os; })){
+          encontrados.push({
+            numeroOS: os,
+            dataPedido: mData[1].split('/').reverse().join('-'),
+            laboratorio: linhaAtual.laboratorio,
+            cliente: (linhaAtual.cliente || '').replace(/\s+/g, ' ').trim(),
+            bruto: (linhaAtual.bruto || '').replace(/\s+/g, ' ').trim()
+          });
+        }
+      }
+      linhaAtual = null;
+    }
+
+    linhas.forEach(function(itens){
+      var texto = itens.map(function(it){ return it.texto; }).join(' ').replace(/\s+/g, ' ').trim();
+      if (!texto) return;
+
+      // rodapé ("Ipê Digital © … ssotica … Página 1 de 2") e cabeçalho da página seguinte
+      // (endereço, CNPJ, título): encerram o pedido aberto para não colar texto no nome do cliente
+      if (/ssotica|p[áa]gina\s+\d+\s+de\s+\d+|listagem de ordens|relat[óo]rio de ordens|cnpj|situa[çc][ãa]o:|total o\.?s\.?/i.test(texto)){
+        fecharLinhaAtual();
+        return;
+      }
+
+      // linha de cabeçalho da tabela ("Data/Status  Nro.  Cliente  ...") — aprende as colunas
+      if (/data/i.test(texto) && /cliente/i.test(texto) && /nro/i.test(texto)){
+        var achadas = [];
+        itens.forEach(function(it){
+          COLUNAS_MARCADORES.forEach(function(m){
+            if (m.re.test(it.texto) && !achadas.some(function(a){ return a.key === m.key; })){
+              achadas.push({ key: m.key, x: it.x });
+            }
+          });
+        });
+        if (achadas.length >= 4){ colunas = achadas.sort(function(a,b){ return a.x - b.x; }); diag.cabecalho = true; }
+        fecharLinhaAtual();
+        return;
+      }
+
+      // cabeçalho de seção de laboratório ("Imperial Lab - 19 R$ 22.895,00"): linha curta, sem data,
+      // com o total em R$ — ou, sem R$, começando na margem esquerda e sem horário. Isso evita que um
+      // sobrenome que quebrou de linha ("Viscondi", "Hoyama") troque o laboratório. O nome é procurado
+      // em qualquer parte da linha, já que ícones do relatório podem virar caracteres estranhos.
+      var pareceCabecalhoLab = /R\$/.test(texto) || (itens[0].x < 130 && !/\d{1,2}:\d{2}/.test(texto));
+      if (texto.length < 60 && !/\d{2}\/\d{2}\/\d{4}/.test(texto) && pareceCabecalhoLab){
+        var achouLab = MAPA_LAB_PDF.some(function(m){
+          if (m.re.test(texto)){ labAtual = m.lab; return true; }
+          return false;
+        });
+        if (achouLab){ fecharLinhaAtual(); return; }
+        if (/laborat[oó]rio n[ãa]o informado/i.test(texto)){ labAtual = 'Não informado'; fecharLinhaAtual(); return; }
+      }
+
+      if (!colunas) return; // ainda não encontramos o cabeçalho da tabela
+
+      var porColuna = {};
+      itens.forEach(function(it){
+        var k = coluna(it.x);
+        if (!k) return;
+        porColuna[k] = (porColuna[k] ? porColuna[k] + ' ' : '') + it.texto;
+      });
+
+      var comecaNovaLinha = porColuna.data && /\d{2}\/\d{2}\/\d{4}/.test(porColuna.data);
+      if (comecaNovaLinha){
+        fecharLinhaAtual();
+        linhaAtual = { data: porColuna.data || '', nro: porColuna.nro || '', cliente: porColuna.cliente || '', laboratorio: labAtual, bruto: texto };
+      } else if (linhaAtual){
+        // linha de continuação (nome do cliente que quebrou em duas linhas, por exemplo)
+        if (porColuna.cliente) linhaAtual.cliente += ' ' + porColuna.cliente;
+        if (porColuna.nro && !linhaAtual.nro) linhaAtual.nro = porColuna.nro;
+        linhaAtual.bruto += ' ' + texto;
+      }
+    });
+    fecharLinhaAtual();
+
+    // Rede de segurança: se a tabela não foi entendida (cabeçalho diferente, colunas deslocadas),
+    // procura de forma simples linhas com "data + nº da OS". O nome do cliente fica para conferir
+    // no "Texto lido no PDF".
+    if (!diag.osNoPdf){
+      var labSimples = 'Não informado';
+      linhas.forEach(function(itens){
+        var texto = itens.map(function(it){ return it.texto; }).join(' ').replace(/\s+/g, ' ').trim();
+        var temData = /\d{2}\/\d{2}\/\d{4}/.test(texto);
+        if (texto.length < 60 && !temData){
+          if (/R\$/.test(texto) || (itens[0].x < 130 && !/\d{1,2}:\d{2}/.test(texto))){
+            MAPA_LAB_PDF.some(function(m){ if (m.re.test(texto)){ labSimples = m.lab; return true; } return false; });
+          }
+          return;
+        }
+        var m = texto.match(/(\d{2}\/\d{2}\/\d{4})\s+(\d{3,7})\b/);
+        if (!m) return;
+        linhaAtual = { data: m[1], nro: m[2], cliente: '', laboratorio: labSimples, bruto: texto };
+        fecharLinhaAtual();
+      });
+      if (diag.osNoPdf) diag.modoSimples = true;
+    }
+
+    return encontrados.map(function(r){
+      return {
+        numeroOS: r.numeroOS,
+        quantidade: 1,
+        dataPedido: r.dataPedido,
+        laboratorio: r.laboratorio,
+        cliente: r.cliente || '',
+        clienteGuess: r.cliente || '(verificar no relatório)',
+        textoLido: r.bruto || '',
+        tipo: 'surfacada',
+        incluir: true
+      };
+    });
+  }
+
+  // ==== LEITOR-PDF-FIM ====
+
+  async function salvarImportados(candidatos){
+    var selecionados = candidatos.filter(function(c){ return c.incluir && !c.salvo; });
+    var correcoes = (state.pdfCorrecoes || []).filter(function(c){ return c.incluir && !c.salvo && c.cliente; });
+    var semNome = selecionados.filter(function(c){ return clienteSemNome((c.cliente || '').trim()); }).length +
+      (state.pdfCorrecoes || []).filter(function(c){ return c.incluir && !c.salvo && clienteSemNome((c.cliente || '').trim()); }).length;
+    if (semNome){
+      state.importErro = 'Há ' + semNome + ' linha(s) selecionada(s) sem nome do cliente. Preencha ou desmarque antes de salvar.';
+      render(); return;
+    }
+    var total = selecionados.length + correcoes.length;
+    state.saving = true; state.importErro = null; state.importProgresso = { feitos: 0, total: total }; render();
+    try{
+      for (var j = 0; j < correcoes.length; j++){
+        await gravar(doc(fs, 'pedidos', correcoes[j].id), { cliente: correcoes[j].cliente }, { merge: true });
+        correcoes[j].salvo = true;
+        state.importProgresso.feitos++; render();
+      }
+      for (var i = 0; i < selecionados.length; i++){
+        var c = selecionados[i];
+        var prazoDias = c.tipo === 'especial' ? (parseInt(c.prazoDias, 10) || 10) : (c.tipo === 'pronta' ? 7 : 10);
+        var previsaoOriginal = addBusinessDays(c.dataPedido, prazoDias);
+        var itens = gerarItens(c.numeroOS, c.quantidade);
+        if (!c._docId) c._docId = novoIdPedido();
+        await gravar(doc(fs, 'pedidos', c._docId), {
+          cliente: c.cliente.trim(),
+          numeroOS: c.numeroOS || '',
+          quantidade: itens.length,
+          itens: itens,
+          tipo: c.tipo,
+          loja: c.loja,
+          laboratorio: c.laboratorio || 'Não informado',
+          dataPedido: c.dataPedido,
+          previsaoOriginal: previsaoOriginal,
+          prazoDias: c.tipo === 'especial' ? prazoDias : null,
+          entregue: false,
+          areaDestaque: false,
+          contato: null,
+          lembretes: {},
+          historico: {},
+          criadoEm: todayStr(),
+          origemImportacao: true
+        });
+        c.salvo = true;
+        state.importProgresso.feitos++; render();
+      }
+      state.modal = null; state.pdfCandidatos = []; state.pdfCorrecoes = []; state.importedJustNow = true;
+    } catch(e){
+      var feitos = state.importProgresso.feitos;
+      state.importErro = (feitos ? feitos + ' de ' + state.importProgresso.total + ' itens foram salvos. ' : '') + 'Erro ao salvar: ' + e.message;
+    }
+    state.saving = false; state.importProgresso = null; render();
+  }
+
+  // codigos = { loja: { laboratório: código } } — a loja só manda os seus; o merge preserva os das outras
+  async function salvarCodigosLabs(codigos){
+    state.saving = true; state.codigosErro = null; render();
+    try{
+      var nomes = Object.keys(codigos);
+      for (var k = 0; k < nomes.length; k++){
+        var lj = lojaPorNome(nomes[k]); if (!lj) continue;
+        await gravar(doc(fs, 'configLoja', lj.slug), { codigosLabs: codigos[nomes[k]] }, { merge: true });
+      }
+      state.modal = null;
+    } catch(e){ state.codigosErro = 'Não foi possível salvar: ' + e.message; }
+    state.saving = false; render();
+  }
+
+  function mensagemErroLogin(e){
+    var c = (e && e.code) || '';
+    if (c === 'auth/invalid-credential' || c === 'auth/wrong-password' || c === 'auth/user-not-found' || c === 'auth/invalid-login-credentials') return 'Senha incorreta (ou esta loja ainda não tem login criado).';
+    if (c === 'auth/too-many-requests') return 'Muitas tentativas. Espere alguns minutos e tente de novo.';
+    if (c === 'auth/network-request-failed') return 'Sem conexão com a internet. Tente de novo.';
+    if (c === 'auth/user-disabled') return 'Este login está desativado.';
+    return 'Erro ao entrar: ' + ((e && e.message) || c || 'tente de novo');
+  }
+  async function tentarLogin(){
+    var f = state.loginForm;
+    if (!f.codigo){ state.loginError = 'Digite a senha.'; render(); return; }
+    var pref = f.role === 'admin' ? String(f.usuario || 'admin').trim().toLowerCase() : (lojaPorNome(f.loja) || {}).slug;
+    if (!pref){ state.loginError = 'Escolha a loja.'; render(); return; }
+    state.saving = true; state.loginError = null; render();
+    try{
+      await comTempoLimite(signInWithEmailAndPassword(auth, pref + '@' + MARCA.dominioEmail, f.codigo), 20000, MSG_SEM_CONEXAO);
+      state.loginForm.codigo = '';
+    } catch(e){ state.loginError = mensagemErroLogin(e); }
+    state.saving = false; render();
+  }
+  function sair(){
+    signOut(auth).catch(function(){});
+  }
+
+  // ---------- instalar no celular (PWA) ----------
+  var eventoInstalar = null;
+  function jaInstalado(){ return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true; }
+  window.addEventListener('beforeinstallprompt', function(e){ e.preventDefault(); eventoInstalar = e; });
+  window.addEventListener('appinstalled', function(){ eventoInstalar = null; state.instaladoAgora = true; render(); });
+  if ('serviceWorker' in navigator && location.protocol.indexOf('http') === 0){
+    window.addEventListener('load', function(){ navigator.serviceWorker.register('sw.js').catch(function(){}); });
+  }
+  async function instalarApp(){
+    if (eventoInstalar){
+      eventoInstalar.prompt();
+      try{ await eventoInstalar.userChoice; } catch(e){}
+      eventoInstalar = null;
+      return;
+    }
+    state.instalarDica = true; render();
+  }
+  function instalarDicaHtml(){
+    var ios = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    return ios
+      ? '<b>No iPhone (use o Safari):</b><br>1. Toque em <b>Compartilhar</b> (quadrado com seta, barra de baixo)<br>2. Role e toque em <b>Adicionar à Tela de Início</b><br>3. Toque em <b>Adicionar</b>'
+      : '<b>No Android (use o Chrome):</b><br>1. Toque nos <b>3 pontinhos ⋮</b> no canto de cima<br>2. Toque em <b>Instalar app</b> ou <b>Adicionar à tela inicial</b><br>3. Confirme em <b>Instalar</b>';
+  }
+
+  // ---------- render ----------
+  function setView(v, id){
+    state.view = v; state.selectedId = id || null; state.modoEdicao = false; state.confirmarExclusao = false; state.contatoAction = null; state.destaqueAction = null; render();
+    if (v === 'equipes') carregarAtividades();
+  }
+
+  function header(){
+    var tabs = [['dashboard','Pedidos'],['destaque','Área em Destaque'],['relatorios','Relatórios']];
+    if (state.session.role === 'admin') tabs.push(['equipes', 'Equipes']);
+    var navHtml = tabs.map(function(t){
+      return '<a href="#" data-view="'+t[0]+'" class="'+(state.view===t[0]?'active':'')+'">'+t[1]+'</a>';
+    }).join('');
+    var quemEsta = state.session.role === 'admin' ? 'Admin · todas as lojas' : ('Loja ' + state.session.loja);
+    return '' +
+    '<div style="min-height:64px;background:var(--marca-dark);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;padding:8px 32px;color:#fff;">' +
+      '<div style="display:flex;align-items:center;gap:32px;flex-wrap:wrap;">' +
+        '<img src="'+MARCA.logo+'" alt="'+escapeHtml(MARCA.nome)+'" style="height:34px;width:auto;display:block;">' +
+        '<nav style="display:flex;gap:4px;flex-wrap:wrap;">'+navHtml+'</nav>' +
+      '</div>' +
+      '<div style="display:flex;align-items:center;gap:12px;font-size:13px;">' +
+        '<span style="opacity:0.9;">'+escapeHtml(quemEsta)+'</span>' +
+        '<button id="btn-codigos" class="btn-outline" title="Códigos da loja nos laboratórios" style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.3);padding:8px 12px;">Códigos nos labs</button>' +
+        '<button id="btn-sair" class="btn-outline" style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.3);padding:8px 12px;">Sair</button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function viewLogin(){
+    var f = state.loginForm;
+    var isLoja = f.role === 'loja';
+    var instalado = jaInstalado() || state.instaladoAgora;
+    return '' +
+    '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px;">' +
+      '<div class="card" style="width:360px;max-width:100%;padding:0;overflow:hidden;">' +
+        '<div style="background:var(--marca-dark);padding:22px 20px;text-align:center;">' +
+          '<img src="'+MARCA.logo+'" alt="'+escapeHtml(MARCA.nome)+'" style="height:60px;max-width:100%;width:auto;">' +
+        '</div>' +
+        '<div style="padding:22px 24px 24px;display:flex;flex-direction:column;gap:16px;">' +
+        '<div style="text-align:center;">' +
+          '<div style="font-weight:800;font-size:18px;color:var(--marca-dark);">Controle de Prazos</div>' +
+          '<div style="font-size:11px;color:var(--ink-soft);opacity:0.8;margin-top:4px;">versão ' + VERSAO_APP + '</div>' +
+        '</div>' +
+        '<div style="display:flex;gap:8px;">' +
+          '<button data-role="loja" class="btn '+(isLoja?'btn-primary':'btn-outline')+'" style="flex:1;">Loja</button>' +
+          '<button data-role="admin" class="btn '+(!isLoja?'btn-primary':'btn-outline')+'" style="flex:1;">Admin</button>' +
+        '</div>' +
+        (isLoja
+          ? '<div><label>Loja</label><select id="login-loja" style="width:100%;">' +
+              LOJAS_TODAS.map(function(l){ return '<option value="'+escapeHtml(l)+'" '+(l===f.loja?'selected':'')+'>'+escapeHtml(l)+'</option>'; }).join('') +
+            '</select></div>'
+          : '<div><label>Usuário</label><input id="login-usuario" type="text" autocapitalize="none" autocomplete="username" value="'+escapeHtml(f.usuario||'admin')+'" style="width:100%;"></div>') +
+        '<div><label>Senha</label>' +
+          '<input id="login-codigo" type="password" autocomplete="current-password" value="'+escapeHtml(f.codigo||'')+'" placeholder="••••••" style="width:100%;"></div>' +
+        (state.loginError ? '<div style="font-size:12px;color:var(--terracota-dark);font-weight:700;">'+escapeHtml(state.loginError)+'</div>' : '') +
+        '<button id="btn-entrar" class="btn btn-primary" '+(state.saving?'disabled':'')+'>'+(state.saving?'Entrando…':'Entrar')+'</button>' +
+        (instalado ? '' :
+          '<div style="border-top:1px solid var(--border);padding-top:16px;text-align:center;">' +
+            '<button id="btn-instalar" class="btn-instalar">⬇ INSTALAR O APP NO CELULAR</button>' +
+            '<div style="font-size:11px;color:var(--ink-soft);margin-top:8px;">Fica na tela inicial, como um app de verdade.</div>' +
+            (state.instalarDica ? '<div style="margin-top:10px;text-align:left;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px;font-size:12px;line-height:1.6;">'+instalarDicaHtml()+'</div>' : '') +
+          '</div>') +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function statRow(){
+    var ativos = escopoPedidos().filter(function(p){ return !p.entregue; });
+    var comStatus = ativos.map(pedidoStatus);
+    var atencao = comStatus.filter(function(s){ return s.status === 'atencao'; }).length;
+    var urgente = comStatus.filter(function(s){ return s.status === 'urgente'; }).length;
+    var destaque = comStatus.filter(function(s){ return s.status === 'destaque'; }).length;
+    var atrasados = comStatus.filter(function(s){ return s.status === 'atrasado'; }).length;
+    return '' +
+    '<div style="display:flex;gap:16px;flex-wrap:wrap;">' +
+      statCard('PEDIDOS ATIVOS', ativos.length, '#fff', 'var(--ink)') +
+      statCard('EM ATENÇÃO', atencao, 'var(--amber-tint)', 'var(--amber-dark)') +
+      statCard('URGENTES', urgente, 'var(--terracota-tint)', 'var(--terracota-dark)') +
+      statCard('EM DESTAQUE', destaque, 'var(--terracota-tint)', 'var(--terracota-dark)') +
+      statCard('ATRASADOS', atrasados, 'var(--terracota-dark)', '#fff') +
+    '</div>';
+  }
+  function statCard(label, value, bg, color){
+    return '<div style="flex:1;background:'+bg+';border:1px solid var(--border);border-radius:12px;padding:16px 20px;">' +
+      '<div style="font-size:12px;font-weight:700;color:'+color+';opacity:0.85;">'+label+'</div>' +
+      '<div style="font-size:26px;font-weight:800;margin-top:4px;color:'+color+';">'+value+'</div>' +
+    '</div>';
+  }
+
+  // Botões de loja do admin (Todas + as lojas do grupo), usados nas três abas
+  function lojaBotoesHtml(){
+    if (state.session.role !== 'admin') return '';
+    return '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">' +
+      '<span style="font-size:12px;font-weight:700;color:var(--ink-soft);margin-right:2px;">Loja:</span>' +
+      [['todas', 'Todas']].concat(LOJAS.map(function(l){ return [l, l]; })).map(function(o){
+        var ativo = state.adminLojaFiltro === o[0];
+        return '<button data-loja-filtro="'+escapeHtml(o[0])+'" class="btn '+(ativo ? 'btn-primary' : 'btn-outline')+'" style="padding:8px 14px;">'+escapeHtml(o[1])+'</button>';
+      }).join('') +
+    '</div>';
+  }
+
+  function semAcento(s){ return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase(); }
+
+  // Busca por OS (inclui os códigos dos óculos, ex.: 8751A) ou pelo nome do cliente.
+  // Procura também nos já entregues, para achar qualquer serviço.
+  function pedidoBateBusca(p, termo){
+    var t = semAcento(termo).replace(/\s+/g, '');
+    if (!t) return true;
+    if (semAcento(p.numeroOS).replace(/\s+/g, '').indexOf(t) >= 0) return true;
+    if (itensDoPedido(p).some(function(it){ return semAcento(it.codigo).replace(/\s+/g, '').indexOf(t) >= 0; })) return true;
+    return semAcento(p.cliente).replace(/\s+/g, '').indexOf(t) >= 0;
+  }
+
+  function fmtDataCompleta(iso){ if (!dataValida(iso)) return '—'; var p = iso.split('-'); return p[2] + '/' + p[1] + '/' + p[0]; }
+
+  // Último upload da loja: o registro novo (config) ou, para uploads antigos, o que dá para tirar dos
+  // pedidos importados (dia do cadastro e datas das OS cadastradas nesse dia). Vale o mais recente.
+  function infoUltimaImportacao(loja){
+    var reg = (configCache.ultimaImportacao || {})[loja] || null;
+    var ultimoDia = null;
+    pedidosCache.forEach(function(p){ if (p.loja === loja && p.origemImportacao && dataValida(p.criadoEm) && (!ultimoDia || p.criadoEm > ultimoDia)) ultimoDia = p.criadoEm; });
+    var antigo = null;
+    if (ultimoDia){
+      var datas = pedidosCache.filter(function(p){ return p.loja === loja && p.origemImportacao && p.criadoEm === ultimoDia && dataValida(p.dataPedido); })
+        .map(function(p){ return p.dataPedido; }).sort();
+      antigo = { dia: ultimoDia, dataMin: datas[0], dataMax: datas[datas.length - 1] };
+    }
+    if (reg && dataValida(reg.dia) && (!antigo || reg.dia >= antigo.dia)) return reg;
+    return antigo;
+  }
+  function ultimoUploadHtml(){
+    var lojas = state.session.role === 'admin' ? (state.adminLojaFiltro !== 'todas' ? [state.adminLojaFiltro] : LOJAS) : [state.session.loja];
+    var hoje = todayStr();
+    return '<div style="display:flex;flex-direction:column;gap:2px;font-size:12px;text-align:right;">' + lojas.map(function(loja){
+      var u = infoUltimaImportacao(loja);
+      var prefixo = lojas.length > 1 ? '<b>' + escapeHtml(loja) + ':</b> ' : '';
+      if (!u) return '<div style="color:var(--terracota-dark);font-weight:700;">' + prefixo + '⚠ Nenhum upload de PDF ainda</div>';
+      var atraso = businessDaysBetween(u.dia, hoje);
+      var velho = atraso >= 3;
+      return '<div style="' + (velho ? 'background:var(--amber-tint);color:var(--amber-dark);font-weight:700;padding:2px 8px;border-radius:6px;' : 'color:var(--ink-soft);') + '">' + prefixo +
+        'Último upload: <b>' + fmtDataCompleta(u.dia) + '</b>' +
+        (u.dataMin ? ' · OS de ' + fmtDataCompleta(u.dataMin) + ' a ' + fmtDataCompleta(u.dataMax) : '') +
+        (velho ? ' · ⚠ há ' + diasUteisTxt(atraso) : '') + '</div>';
+    }).join('') + '</div>';
+  }
+
+  // ==== COBRANCA-INICIO ==== (testes/teste-leitor.html também testa este trecho)
+  // Cobrança em lote: os urgentes e atrasados de cada laboratório viram UMA mensagem, que o time copia e
+  // cola na conversa com o laboratório. Depois, "Marcar como cobrados hoje" registra a cobrança de todos.
+  // A mensagem leva só o que o laboratório usa: OS, data do pedido, previsão e situação.
+  function cobradoNoDia(p, dia){
+    return !!((p.lembretes && p.lembretes[dia]) || (p.contato && p.contato.registradoEm === dia));
+  }
+  function codigosPendentes(p){
+    var itens = itensDoPedido(p);
+    if (itens.length > 1 && itens.some(function(it){ return it.entregue; })){
+      return itens.filter(function(it){ return !it.entregue; }).map(function(it){ return it.codigo; }).join(', ');
+    }
+    return p.numeroOS || '—';
+  }
+  function situacaoCobranca(s){
+    if (s.status === 'atrasado') return 'atrasado ' + diasUteisTxt(s.atraso);
+    if (s.diasRestantes != null && s.diasRestantes <= 0) return 'vence hoje';
+    return 'vence em ' + diasUteisTxt(s.diasRestantes);
+  }
+  function gruposCobranca(pedidos, hoje){
+    var mapa = {};
+    pedidos.forEach(function(p){
+      if (p.entregue) return;
+      var s = pedidoStatus(p, hoje);
+      if (s.status !== 'urgente' && s.status !== 'atrasado') return;
+      var lab = p.laboratorio || 'Não informado';
+      var chave = p.loja + '|' + lab;
+      if (!mapa[chave]) mapa[chave] = { chave: chave, loja: p.loja, laboratorio: lab, itens: [] };
+      mapa[chave].itens.push({
+        p: p, s: s, cobradoHoje: cobradoNoDia(p, hoje),
+        linha: 'OS ' + codigosPendentes(p) + ' · pedido ' + fmtDate(p.dataPedido) + ' · ' + (s.novoPrazo ? 'novo prazo ' : 'previsão ') + fmtDate(s.previsao) + ' · ' + situacaoCobranca(s)
+      });
+    });
+    return Object.keys(mapa).map(function(k){
+      mapa[k].itens.sort(function(a, b){ return (a.s.previsao || '').localeCompare(b.s.previsao || '') || String(a.p.numeroOS).localeCompare(String(b.p.numeroOS)); });
+      return mapa[k];
+    }).sort(function(a, b){ return a.loja.localeCompare(b.loja) || a.laboratorio.localeCompare(b.laboratorio); });
+  }
+  function mensagemLote(grupo, itens){
+    var codigo = ((configCache.codigosLabs || {})[grupo.loja] || {})[grupo.laboratorio];
+    var semLab = grupo.laboratorio === 'Não informado';
+    return (semLab ? 'Olá!' : 'Olá, ' + grupo.laboratorio + '!') + ' Aqui é da ' + ((lojaPorNome(grupo.loja) || {}).msg || grupo.loja) + (codigo ? ' COD ' + codigo : '') + '.\n' +
+      (itens.length === 1 ? 'Pedimos a posição do pedido abaixo:' : 'Pedimos a posição dos pedidos abaixo:') + '\n\n' +
+      itens.map(function(it, i){ return (i + 1) + '. ' + it.linha; }).join('\n') +
+      '\n\nObrigado!';
+  }
+  // ==== COBRANCA-FIM ====
+
+  function viewDashboard(){
+    var busca = (state.busca || '').trim();
+    var rows = escopoPedidos().filter(function(p){ return busca ? pedidoBateBusca(p, busca) : !p.entregue; }).map(function(p){
+      return Object.assign({}, p, { _s: pedidoStatus(p) });
+    });
+    if (!busca && state.filter !== 'todos') rows = rows.filter(function(p){ return p._s.status === state.filter; });
+    rows.sort(function(a,b){
+      if (!!a.entregue !== !!b.entregue) return a.entregue ? 1 : -1;
+      return (a._s.previsao||'').localeCompare(b._s.previsao||'');
+    });
+
+    var filterChips = [['todos','Todos'],['atencao','Atenção'],['urgente','Urgente'],['destaque','Em destaque'],['atrasado','Atrasados']].map(function(f){
+      var active = !busca && state.filter === f[0];
+      return '<button data-filter="'+f[0]+'" class="btn '+(active?'btn-primary':'btn-outline')+'" style="border-radius:999px;">'+f[1]+'</button>';
+    }).join('');
+
+    var buscaHtml = '<div style="position:relative;flex:0 1 300px;min-width:200px;">' +
+      '<input id="busca-os" type="search" autocomplete="off" value="'+escapeHtml(state.busca || '')+'" placeholder="🔍 Buscar OS ou cliente" style="width:100%;padding-right:32px;'+(busca ? 'border:2px solid var(--green-dark);' : '')+'">' +
+      (busca ? '<button id="limpar-busca" title="Limpar busca" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);font-size:16px;color:var(--ink-soft);">✕</button>' : '') +
+    '</div>';
+
+    var hojeLista = todayStr();
+    var tableRows = rows.length ? rows.map(function(p){
+      var s = p._s;
+      var cobradoHoje = !p.entregue && cobradoNoDia(p, hojeLista);
+      var rowBg = s.status === 'atrasado' ? 'background:#EFC9B8;' : s.status === 'urgente' ? 'background:var(--terracota-tint);' : (s.status === 'atencao' ? 'background:var(--amber-tint);' : '');
+      var situacao = s.status === 'atrasado' ? '<span style="color:var(--terracota-dark);font-weight:800;">Atrasado ' + diasUteisTxt(s.atraso) + '</span>'
+        : s.diasRestantes != null ? (s.diasRestantes <= 0 ? 'Vence hoje' : diasUteisTxt(s.diasRestantes)) : '—';
+      var tipoLabel = p.tipo === 'pronta' ? 'Pronta' : (p.tipo === 'especial' ? 'Especial' : 'Surfaçada');
+      var itensP = itensDoPedido(p);
+      var progressoTxt = itensP.length > 1 ? ' ('+itensP.filter(function(it){ return it.entregue; }).length+'/'+itensP.length+' chegaram)' : '';
+      return '<tr data-open="'+p.id+'" style="cursor:pointer;'+rowBg+'">' +
+        '<td style="font-weight:700;">'+escapeHtml(p.cliente)+(p.numeroOS?' <span style="font-weight:400;color:var(--ink-soft);">· OS '+escapeHtml(p.numeroOS)+escapeHtml(progressoTxt)+'</span>':'')+'</td>' +
+        '<td style="color:var(--ink-soft);">'+tipoLabel+'</td>' +
+        '<td style="color:var(--ink-soft);">'+p.loja+'</td>' +
+        '<td style="color:var(--ink-soft);font-weight:600;">'+escapeHtml(p.laboratorio||'—')+'</td>' +
+        '<td style="color:var(--ink-soft);">'+fmtDate(p.dataPedido)+'</td>' +
+        '<td style="color:var(--ink-soft);">'+fmtDate(s.previsao)+(s.novoPrazo ? ' <span style="font-size:11px;">(novo prazo)</span>' : '')+'</td>' +
+        '<td style="color:var(--ink-soft);">'+situacao+'</td>' +
+        '<td><span class="chip '+statusChipClass(s.status)+'">'+statusLabel(s.status)+'</span></td>' +
+        '<td>'+(cobradoHoje ? '<span class="chip-cobrado">✓ cobrado hoje</span>' : '')+'</td>' +
+      '</tr>';
+    }).join('') : '<tr><td colspan="9" style="text-align:center;color:var(--ink-soft);padding:32px;">' +
+      (busca
+        ? 'Nenhuma OS ou cliente encontrado para “' + escapeHtml(busca) + '”' + (state.session.role === 'admin' && state.adminLojaFiltro !== 'todas' ? ' na loja ' + escapeHtml(state.adminLojaFiltro) + ' (experimente “Todas”)' : '') + '.'
+        : state.filter !== 'todos'
+        ? 'Nenhum pedido com status "' + statusLabel(state.filter) + '" agora.'
+        : 'Nenhum pedido em aberto. Use o botão "+ Novo Pedido" para cadastrar.') +
+      '</td></tr>';
+
+    var imported = state.importedJustNow;
+    var pdfMsg = state.pdfProcessando
+      ? 'Lendo o PDF, aguarde alguns segundos…'
+      : state.pdfError
+        ? state.pdfError
+        : (imported
+          ? 'Última importação concluída. Os pedidos novos identificados foram adicionados à listagem — confira e ajuste o que for preciso.'
+          : 'Suba aqui o PDF exportado do SSOtica. O app tenta identificar automaticamente Nº OS, data e laboratório de cada pedido novo (a leitura é experimental — sempre revise antes de confirmar, especialmente o nome do cliente).');
+    var importBlock = '' +
+    '<div style="position:relative;background:#fff;border:1px dashed var(--green-dark);border-radius:12px;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:20px;">' +
+      '<div style="display:flex;align-items:center;gap:12px;">' +
+        '<div style="width:36px;height:36px;border-radius:8px;background:var(--green-tint);display:flex;align-items:center;justify-content:center;font-size:16px;">📄</div>' +
+        '<div>' +
+          '<div style="font-size:13px;font-weight:700;">Importar relatório do SSOtica</div>' +
+          '<div style="font-size:12px;color:'+(state.pdfError?'var(--terracota-dark)':'var(--ink-soft)')+';margin-top:2px;">'+escapeHtml(pdfMsg)+'</div>' +
+        '</div>' +
+      '</div>' +
+      '<label for="import-pdf" class="btn btn-primary" style="white-space:nowrap;">'+(state.pdfProcessando?'Lendo…':'Selecionar PDF')+'</label>' +
+      '<input id="import-pdf" type="file" accept="application/pdf" style="position:absolute;width:1px;height:1px;opacity:0;" '+(state.pdfProcessando?'disabled':'')+'>' +
+    '</div>';
+
+    // faixa "Cobrança do dia": quantos urgentes/atrasados ainda não foram cobrados hoje
+    var grupos = gruposCobranca(escopoPedidos(), hojeLista);
+    var pendentesHoje = 0, labsPend = 0;
+    grupos.forEach(function(g){ var n = g.itens.filter(function(it){ return !it.cobradoHoje; }).length; pendentesHoje += n; if (n) labsPend++; });
+    var faixaCobranca = grupos.length
+      ? '<div style="margin-top:16px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:12px 16px;border-radius:12px;' +
+          (pendentesHoje ? 'background:var(--terracota-tint);border:1px solid var(--terracota);' : 'background:var(--green-tint);border:1px solid var(--border);') + '">' +
+          '<div style="font-size:13px;font-weight:700;color:' + (pendentesHoje ? 'var(--terracota-dark)' : 'var(--green-dark)') + ';">' +
+            (pendentesHoje ? '📋 Cobrança do dia: ' + pendentesHoje + ' pedido' + (pendentesHoje === 1 ? '' : 's') + ' urgente' + (pendentesHoje === 1 ? '' : 's') + '/atrasado' + (pendentesHoje === 1 ? '' : 's') + ' para cobrar em ' + labsPend + ' laboratório' + (labsPend === 1 ? '' : 's')
+              : '✓ Cobrança do dia feita — todos os urgentes e atrasados já foram cobrados hoje') + '</div>' +
+          '<button id="btn-cobrar-labs" class="btn ' + (pendentesHoje ? 'btn-terracota' : 'btn-outline') + '">Cobrar laboratórios</button>' +
+        '</div>'
+      : '';
+
+    return '' +
+    importBlock +
+    statRow() +
+    faixaCobranca +
+    (state.session.role === 'admin' ? '<div style="margin-top:20px;">'+lojaBotoesHtml()+'</div>' : '') +
+    '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:'+(state.session.role === 'admin' ? 12 : 20)+'px;">' +
+      '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">'+filterChips+'</div>' +
+      '<div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;justify-content:flex-end;flex:1;">' + ultimoUploadHtml() + buscaHtml + '</div>' +
+    '</div>' +
+    (busca ? '<div style="font-size:12px;color:var(--ink-soft);margin-top:8px;">'+rows.length+' resultado'+(rows.length === 1 ? '' : 's')+' para “'+escapeHtml(busca)+'” — inclui pedidos já entregues.'+(rows.length === 1 ? ' Aperte Enter para abrir.' : '')+'</div>' : '') +
+    '<div class="card" style="padding:0;overflow:hidden;margin-top:16px;">' +
+      '<table><thead><tr>' +
+        '<th>Cliente</th><th>Tipo</th><th>Loja</th><th>Laboratório</th><th>Pedido</th><th>Previsão</th><th>Situação</th><th>Status</th><th>Cobrança</th>' +
+      '</tr></thead><tbody>'+tableRows+'</tbody></table>' +
+    '</div>';
+  }
+
+  function viewDetalhe(){
+    var p = pedidosCache.find(function(x){ return x.id === state.selectedId; });
+    if (!p) return '<div class="card">Pedido não encontrado. <a href="#" data-view="dashboard">Voltar</a></div>';
+    if (state.session.role !== 'admin' && p.loja !== state.session.loja){
+      return '<div class="card">Este pedido pertence a outra loja. <a href="#" data-view="dashboard">Voltar</a></div>';
+    }
+    var s = pedidoStatus(p);
+    var timeline = [
+      { label: 'Pedido registrado', date: fmtDate(p.dataPedido), done: true },
+      { label: 'Checkpoint de atenção', date: s.checkAtencao ? fmtDate(s.checkAtencao) : fmtDate(addBusinessDays(p.dataPedido, p.tipo==='pronta'?3:5)), done: s.status !== 'ok' || p.entregue },
+      { label: 'Checkpoint de urgência', date: s.checkUrgencia ? fmtDate(s.checkUrgencia) : '—', done: s.status === 'urgente' || s.status === 'atrasado' || p.entregue },
+      { label: 'Entrega', date: p.entregue ? fmtDate(p.dataEntrega) : '—', done: !!p.entregue }
+    ];
+    var timelineHtml = timeline.map(function(t, i){
+      return '<div style="display:flex;flex-direction:column;align-items:center;gap:6px;width:170px;">' +
+        '<div style="width:14px;height:14px;border-radius:999px;background:'+(t.done?'var(--green-dark)':'var(--border)')+';"></div>' +
+        '<div style="font-size:12px;font-weight:700;text-align:center;">'+t.label+'</div>' +
+        '<div style="font-size:11px;color:var(--ink-soft);">'+t.date+'</div>' +
+      '</div>' + (i < timeline.length-1 ? '<div style="flex:1;height:2px;background:var(--border);margin-bottom:26px;"></div>' : '');
+    }).join('');
+
+    var actionPanel = '';
+    if (!p.entregue) {
+      actionPanel = '<div class="card" style="margin-top:16px;display:flex;flex-direction:column;gap:14px;">' +
+        '<div><div style="font-size:16px;font-weight:800;">Registrar contato com o laboratório</div>' +
+        '<div style="font-size:13px;color:var(--ink-soft);margin-top:2px;">Use após cobrar o laboratório no checkpoint de urgência. Para cobrar vários pedidos de uma vez, use “Cobrar laboratórios” na tela de Pedidos.</div></div>' +
+        '<div style="display:flex;gap:12px;">' +
+          '<button data-act="mesmo" class="btn btn-outline" style="flex:1;">✓ Mesmo prazo — laboratório confirma</button>' +
+          '<button data-act="novo" class="btn btn-outline" style="flex:1;">⚠ Laboratório informou novo prazo</button>' +
+          '<button data-act="entregar" class="btn btn-primary" style="flex:1;">📦 Marcar tudo como entregue</button>' +
+        '</div>';
+      if (state.contatoAction === 'novo') {
+        actionPanel += '<div style="display:flex;flex-direction:column;gap:10px;padding:16px;background:var(--terracota-tint);border-radius:10px;">' +
+          '<div><label>Nova data de previsão</label><input type="date" id="nova-data" value="'+(state.contatoForm.novaData||'')+'"></div>' +
+          '<div><label>Observação do laboratório</label><textarea id="obs" rows="3" placeholder="O que o laboratório informou">'+escapeHtml(state.contatoForm.observacao||'')+'</textarea></div>' +
+          '<button id="salvar-novo-prazo" class="btn btn-terracota" style="align-self:flex-start;">Salvar e mover para Área em Destaque</button>' +
+        '</div>';
+      }
+      if (p.contato && p.contato.tipo === 'mesmo') {
+        actionPanel += '<div style="padding:12px 16px;background:var(--green-tint);border-radius:10px;font-size:13px;color:var(--green-dark);font-weight:600;">Confirmado em '+fmtDate(p.contato.registradoEm)+': laboratório mantém o prazo.</div>';
+      }
+      actionPanel += '</div>';
+    }
+
+    var tipoLabelDet = p.tipo === 'pronta' ? 'Lente Pronta' : (p.tipo === 'especial' ? 'Pedido Especial ('+(p.prazoDias||'?')+' dias úteis)' : 'Lente Surfaçada');
+
+    var itensLista = itensDoPedido(p);
+    var itensPanel = '';
+    if (itensLista.length > 1) {
+      var chegaramCount = itensLista.filter(function(it){ return it.entregue; }).length;
+      itensPanel = '<div class="card" style="margin-top:16px;display:flex;flex-direction:column;gap:12px;">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;">' +
+          '<div style="font-size:15px;font-weight:800;">Óculos desta venda ('+chegaramCount+' de '+itensLista.length+' chegaram)</div>' +
+        '</div>' +
+        itensLista.map(function(it, idx){
+          return '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:'+(it.entregue?'var(--green-tint)':'var(--bg)')+';border-radius:8px;">' +
+            '<div style="font-weight:700;font-size:13px;">'+escapeHtml(it.codigo || ('Item '+(idx+1)))+(it.entregue?' <span style="font-weight:400;color:var(--green-dark);">· chegou em '+fmtDate(it.dataEntrega)+'</span>':'')+'</div>' +
+            '<button data-item-toggle="'+idx+'" class="btn '+(it.entregue?'btn-outline':'btn-primary')+'" style="font-size:12px;padding:6px 12px;">'+(it.entregue?'Desfazer':'✓ Chegou')+'</button>' +
+          '</div>';
+        }).join('') +
+      '</div>';
+    }
+
+    var qtdOculos = itensLista.length;
+    var apagarPanel = state.confirmarExclusao
+      ? '<div class="card" style="margin-top:16px;display:flex;flex-direction:column;gap:12px;background:var(--terracota-tint);border:2px solid var(--terracota-dark);">' +
+          '<div style="font-size:15px;font-weight:800;color:var(--terracota-dark);">Confirma que quer apagar este lançamento?</div>' +
+          '<div style="font-size:13px;">OS <b>'+escapeHtml(p.numeroOS || '—')+'</b> · '+escapeHtml(p.cliente || '')+' · '+escapeHtml(p.laboratorio || '')+(qtdOculos > 1 ? ' · '+qtdOculos+' óculos' : '')+'</div>' +
+          '<div style="font-size:12px;color:var(--ink-soft);">Use só se o lançamento foi feito errado ou está duplicado. Depois de apagado, não dá para recuperar.</div>' +
+          '<div style="display:flex;gap:10px;">' +
+            '<button id="cancelar-exclusao" class="btn btn-outline" style="flex:1;">Não, manter</button>' +
+            '<button id="confirmar-exclusao" class="btn btn-terracota" style="flex:1;" '+(state.saving?'disabled':'')+'>'+(state.saving?'Apagando…':'Sim, apagar lançamento')+'</button>' +
+          '</div>' +
+        '</div>'
+      : '';
+    var btnApagar = '<button id="btn-excluir-pedido" class="btn btn-outline" style="color:var(--terracota-dark);border-color:var(--terracota);">🗑 Apagar lançamento</button>';
+
+    var adminPanel = '';
+    if (state.session.role !== 'admin' && !state.confirmarExclusao){
+      adminPanel = '<div style="display:flex;gap:10px;margin-top:16px;">' + btnApagar + '</div>';
+    }
+    if (state.session.role === 'admin'){
+      if (state.modoEdicao){
+        adminPanel = '<div class="card" style="margin-top:16px;display:flex;flex-direction:column;gap:12px;">' +
+          '<div style="font-size:15px;font-weight:800;">Editar pedido (admin)</div>' +
+          '<div style="display:flex;gap:10px;">' +
+            '<div style="flex:2;"><label>Cliente</label><input id="edit-cliente" type="text" value="'+escapeHtml(p.cliente||'')+'" style="width:100%;"></div>' +
+            '<div style="flex:1;"><label>Nº OS</label><input id="edit-os" type="text" value="'+escapeHtml(p.numeroOS||'')+'" style="width:100%;"></div>' +
+          '</div>' +
+          '<div style="display:flex;gap:10px;">' +
+            '<div style="flex:1;"><label>Laboratório</label><select id="edit-lab" style="width:100%;">' +
+              LABORATORIOS_FIXOS.map(function(l){ return '<option value="'+l+'" '+(p.laboratorio===l?'selected':'')+'>'+l+'</option>'; }).join('') +
+            '</select></div>' +
+            '<div style="flex:1;"><label>Data do pedido</label><input id="edit-data" type="date" value="'+(p.dataPedido||'')+'" style="width:100%;"></div>' +
+            '<div style="flex:1;"><label>Previsão original</label><input id="edit-previsao" type="date" value="'+(p.previsaoOriginal||'')+'" style="width:100%;"></div>' +
+          '</div>' +
+          '<div style="display:flex;gap:10px;margin-top:6px;">' +
+            '<button id="cancelar-edicao" class="btn btn-outline" style="flex:1;">Cancelar</button>' +
+            '<button id="salvar-edicao" class="btn btn-primary" style="flex:1;" '+(state.saving?'disabled':'')+'>'+(state.saving?'Salvando…':'Salvar alterações')+'</button>' +
+          '</div>' +
+        '</div>';
+      } else {
+        adminPanel = '<div style="display:flex;gap:10px;margin-top:16px;">' +
+          '<button id="btn-editar-pedido" class="btn btn-outline">✎ Editar pedido</button>' +
+          (state.confirmarExclusao ? '' : btnApagar) +
+        '</div>';
+      }
+    }
+
+    return '' +
+    '<a href="#" data-view="dashboard" style="font-size:13px;font-weight:700;color:var(--green-dark);text-decoration:none;">← Voltar para Pedidos</a>' +
+    '<div class="card" style="margin-top:16px;display:flex;flex-direction:column;gap:18px;">' +
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;">' +
+        '<div><div style="font-size:20px;font-weight:800;">'+escapeHtml(p.cliente)+(p.numeroOS?' <span style="font-weight:600;color:var(--ink-soft);font-size:15px;">· OS '+escapeHtml(p.numeroOS)+'</span>':'')+'</div>' +
+        '<div style="font-size:13px;color:var(--ink-soft);margin-top:2px;">Loja '+p.loja+' · '+tipoLabelDet+' · Laboratório: '+escapeHtml(p.laboratorio)+'</div></div>' +
+        '<span class="chip '+statusChipClass(s.status)+'">'+statusLabel(s.status)+'</span>' +
+      '</div>' +
+      '<div style="display:flex;align-items:center;padding-top:8px;">'+timelineHtml+'</div>' +
+    '</div>' +
+    itensPanel +
+    actionPanel +
+    adminPanel +
+    apagarPanel;
+  }
+
+  function viewDestaque(){
+    var lista = escopoPedidos().filter(function(p){ return p.areaDestaque && !p.entregue; });
+    var hoje = todayStr();
+    var html = lista.length ? lista.map(function(p){
+      var feitoHoje = p.lembretes && p.lembretes[hoje];
+      var acao = state.destaqueAction && state.destaqueAction.id === p.id ? state.destaqueAction.tipo : null;
+      var historico = p.historico || {};
+      var datasHistorico = Object.keys(historico).sort().reverse();
+      var historicoHtml = datasHistorico.length
+        ? '<div style="display:flex;flex-direction:column;gap:6px;margin-top:10px;">' +
+            datasHistorico.map(function(d){
+              var h = historico[d];
+              return '<div style="font-size:12px;background:var(--bg);border-radius:8px;padding:8px 12px;"><b>'+fmtDate(d)+':</b> '+escapeHtml(h.observacao || 'Contato feito, sem observação registrada')+'</div>';
+            }).join('') +
+          '</div>'
+        : '<div style="font-size:13px;color:var(--ink-soft);background:var(--bg);border-radius:8px;padding:10px 14px;margin-top:10px;">"'+escapeHtml(p.contato && p.contato.observacao || 'Sem observação')+'"</div>';
+
+      var formsHtml = '';
+      if (acao === 'contato') {
+        formsHtml = '<div style="display:flex;flex-direction:column;gap:10px;padding:14px;background:var(--bg);border-radius:10px;margin-top:10px;">' +
+          '<div><label>Observação da resposta do laboratório (opcional)</label><textarea id="destaque-obs-'+p.id+'" rows="2" placeholder="O que o laboratório respondeu hoje"></textarea></div>' +
+          '<div style="display:flex;gap:8px;">' +
+            '<button data-cancelar-destaque="'+p.id+'" class="btn btn-outline" style="flex:1;">Cancelar</button>' +
+            '<button data-salvar-contato="'+p.id+'" class="btn btn-terracota" style="flex:1;">Salvar contato de hoje</button>' +
+          '</div>' +
+        '</div>';
+      } else if (acao === 'prazo') {
+        formsHtml = '<div style="display:flex;flex-direction:column;gap:10px;padding:14px;background:var(--terracota-tint);border-radius:10px;margin-top:10px;">' +
+          '<div><label>Novo prazo informado pelo laboratório</label><input type="date" id="destaque-data-'+p.id+'" value=""></div>' +
+          '<div><label>Observação</label><textarea id="destaque-obs2-'+p.id+'" rows="2" placeholder="Motivo do novo prazo"></textarea></div>' +
+          '<div style="display:flex;gap:8px;">' +
+            '<button data-cancelar-destaque="'+p.id+'" class="btn btn-outline" style="flex:1;">Cancelar</button>' +
+            '<button data-salvar-prazo="'+p.id+'" class="btn btn-terracota" style="flex:1;">Salvar novo prazo</button>' +
+          '</div>' +
+        '</div>';
+      }
+
+      return '<div class="card" style="border-color:var(--terracota);margin-bottom:14px;">' +
+        '<div style="display:flex;justify-content:space-between;align-items:flex-start;">' +
+          '<div><div style="font-size:16px;font-weight:800;">'+escapeHtml(p.cliente)+(p.numeroOS?' · OS '+escapeHtml(p.numeroOS):'')+'</div>' +
+          '<div style="font-size:12px;color:var(--ink-soft);margin-top:2px;">'+p.loja+' · '+(p.tipo==='pronta'?'Pronta':(p.tipo==='especial'?'Especial':'Surfaçada'))+' · Prazo original: '+fmtDate(p.previsaoOriginal)+' · Laboratório: '+escapeHtml(p.laboratorio)+'</div></div>' +
+          '<span class="chip chip-destaque">Novo prazo: '+fmtDate(p.contato && p.contato.novaPrevisao)+'</span>' +
+        '</div>' +
+        historicoHtml +
+        '<div style="display:flex;justify-content:space-between;align-items:center;padding-top:10px;margin-top:8px;border-top:1px solid var(--border);">' +
+          '<div style="font-size:12px;color:var(--ink-soft);">Cobrança ao laboratório</div>' +
+          '<div style="display:flex;gap:8px;">' +
+            (acao ? '' : '<button data-abrir-contato="'+p.id+'" class="btn" style="'+(feitoHoje?'background:var(--green-dark);color:#fff;':'background:var(--terracota-dark);color:#fff;')+'">'+(feitoHoje?'✓ Contato feito hoje':'Marcar contato de hoje')+'</button>') +
+            (acao ? '' : '<button data-abrir-prazo="'+p.id+'" class="btn btn-outline">⚠ Precisa de mais prazo</button>') +
+            (acao ? '' : '<button data-entregar="'+p.id+'" class="btn btn-primary">📦 Entregue</button>') +
+          '</div>' +
+        '</div>' +
+        formsHtml +
+      '</div>';
+    }).join('') : '<div class="card" style="text-align:center;color:var(--ink-soft);">Nenhum pedido em destaque agora — ótimo sinal.</div>';
+
+    return '' +
+    '<div style="margin-bottom:16px;display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap;"><div><div style="font-size:20px;font-weight:800;">Área em Destaque</div>' +
+    '<div style="font-size:13px;color:var(--ink-soft);margin-top:4px;">Pedidos com novo prazo do laboratório. Cobrança diária até a entrega.</div></div>' + lojaBotoesHtml() + '</div>' +
+    html;
+  }
+
+  function tipoLenteLabel(t){ return t === 'pronta' ? 'Pronta' : (t === 'especial' ? 'Especial' : 'Surfaçada'); }
+
+  // Data em que a OS ficou completa: com vários óculos, é a do último que chegou.
+  // Sem data confiável → null (o pedido fica fora do relatório).
+  function dataEntregaDaOS(p){
+    if (!p.entregue) return null;
+    var itens = p.itens || [];
+    if (itens.length > 1){
+      if (!itens.every(function(it){ return it.entregue; })) return null;
+      var datas = itens.map(function(it){ return it.dataEntrega; }).filter(Boolean).sort();
+      if (datas.length === itens.length) return datas[datas.length - 1];
+    }
+    return p.dataEntrega || null;
+  }
+
+  // Uma linha por OS entregue, sempre em dias úteis. A régua do atraso é a previsão original
+  // (o objetivo é cobrar o laboratório); o novo prazo informado aparece só como referência.
+  function linhasRelatorio(pedidos){
+    var linhas = [];
+    pedidos.forEach(function(p){
+      var entrega = dataEntregaDaOS(p);
+      if (!dataValida(entrega) || !dataValida(p.dataPedido) || !dataValida(p.previsaoOriginal)) return;
+      var dias = businessDaysBetween(p.dataPedido, entrega);
+      var atraso = businessDaysBetween(p.previsaoOriginal, entrega);
+      linhas.push({
+        id: p.id, os: p.numeroOS || '—', cliente: p.cliente || '', loja: p.loja,
+        laboratorio: p.laboratorio || 'Não informado', tipo: tipoLenteLabel(p.tipo),
+        dataPedido: p.dataPedido, dataEntrega: entrega, previsao: p.previsaoOriginal,
+        novoPrazo: p.contato && p.contato.novaPrevisao || null,
+        dias: dias, atraso: Math.max(atraso, 0), noPrazo: atraso <= 0
+      });
+    });
+    return linhas.sort(function(a, b){ return b.dataEntrega.localeCompare(a.dataEntrega); });
+  }
+
+  function resumoRelatorio(linhas){
+    var n = linhas.length;
+    var soma = linhas.reduce(function(s, l){ return s + l.dias; }, 0);
+    var noPrazo = linhas.filter(function(l){ return l.noPrazo; }).length;
+    var somaAtraso = linhas.reduce(function(s, l){ return s + l.atraso; }, 0);
+    return { total: n, media: n ? soma / n : 0, pctNoPrazo: n ? Math.round(100 * noPrazo / n) : 0, atrasoMedio: n ? somaAtraso / n : 0 };
+  }
+
+  function fmtDias(v){ return (Math.round(v * 10) / 10).toString().replace('.', ','); }
+  function diasUteisTxt(n){ return n + (n === 1 ? ' dia útil' : ' dias úteis'); }
+
+  function viewRelatorios(){
+    var linhas = linhasRelatorio(escopoPedidos());
+    var lojaFiltroHtml = lojaBotoesHtml();
+    var aviso = '<div style="font-size:12px;color:var(--ink-soft);margin-top:14px;">ℹ️ A data de entrega é o dia em que alguém marca “chegou” no app — marque no mesmo dia em que o óculos chega na loja para os prazos ficarem certos.</div>';
+    var cabecalho = '<div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:16px;gap:12px;">' +
+      '<div><div style="font-size:20px;font-weight:800;">Relatórios de entrega</div>' +
+      '<div style="font-size:13px;color:var(--ink-soft);margin-top:4px;">Pedidos já entregues, contados em dias úteis. O atraso é medido contra a previsão original do pedido.</div></div>' +
+      lojaFiltroHtml + '</div>';
+
+    if (!linhas.length){
+      return cabecalho + '<div class="card" style="text-align:center;color:var(--ink-soft);">Ainda não há pedidos entregues para mostrar. Os números aparecem aqui conforme os óculos forem marcados como “chegou”.</div>' + aviso;
+    }
+
+    var geral = resumoRelatorio(linhas);
+    function agrupar(campo){
+      var grupos = {};
+      linhas.forEach(function(l){ (grupos[l[campo]] = grupos[l[campo]] || []).push(l); });
+      return Object.keys(grupos).map(function(k){ var r = resumoRelatorio(grupos[k]); r.nome = k; return r; })
+        .sort(function(a, b){ return b.media - a.media; });
+    }
+    function corPct(pct){ return pct < 70 ? 'var(--terracota-dark)' : (pct < 90 ? 'var(--amber-dark)' : 'var(--green-dark)'); }
+    function quadro(titulo, grupos){
+      return '<div class="card" style="flex:1;min-width:300px;padding:16px 18px;">' +
+        '<div style="font-size:15px;font-weight:800;margin-bottom:10px;">'+titulo+'</div>' +
+        '<table><thead><tr><th>'+(titulo.indexOf('laboratório') >= 0 ? 'Laboratório' : 'Tipo de lente')+'</th><th>Entregues</th><th>Prazo médio</th><th>Atraso médio</th><th>No prazo</th></tr></thead><tbody>' +
+        grupos.map(function(g){
+          return '<tr><td style="font-weight:700;">'+escapeHtml(g.nome)+'</td><td>'+g.total+'</td>' +
+            '<td>'+fmtDias(g.media)+' d.u.</td>' +
+            '<td style="color:'+(g.atrasoMedio > 0 ? 'var(--terracota-dark)' : 'var(--ink-soft)')+';font-weight:'+(g.atrasoMedio > 0 ? 700 : 400)+';">'+(g.atrasoMedio > 0 ? '+' + fmtDias(g.atrasoMedio) + ' d.u.' : '—')+'</td>' +
+            '<td style="color:'+corPct(g.pctNoPrazo)+';font-weight:700;">'+g.pctNoPrazo+'%</td></tr>';
+        }).join('') +
+        '</tbody></table></div>';
+    }
+
+    var tabela = '<div class="card" style="padding:0;overflow:auto;margin-top:16px;">' +
+      '<table><thead><tr><th>OS</th><th>Cliente</th><th>Laboratório</th><th>Tipo de lente</th><th>Data do pedido</th><th>Data entregue</th><th>Entregue em</th></tr></thead><tbody>' +
+      linhas.map(function(l){
+        var fundo = l.noPrazo ? 'var(--green-tint)' : 'var(--terracota-tint)';
+        var cor = l.noPrazo ? 'var(--green-dark)' : 'var(--terracota-dark)';
+        return '<tr data-open="'+l.id+'" style="cursor:pointer;background:'+fundo+';" title="Previsão: '+fmtDate(l.previsao)+(l.novoPrazo ? ' · novo prazo do laboratório: '+fmtDate(l.novoPrazo) : '')+'">' +
+          '<td style="font-weight:700;">'+escapeHtml(l.os)+'</td>' +
+          '<td>'+escapeHtml(l.cliente)+(state.session.role === 'admin' && state.adminLojaFiltro === 'todas' ? ' <span style="color:var(--ink-soft);font-size:12px;">· '+escapeHtml(l.loja)+'</span>' : '')+'</td>' +
+          '<td>'+escapeHtml(l.laboratorio)+'</td>' +
+          '<td>'+l.tipo+'</td>' +
+          '<td>'+fmtDate(l.dataPedido)+'</td>' +
+          '<td>'+fmtDate(l.dataEntrega)+'</td>' +
+          '<td style="color:'+cor+';font-weight:700;white-space:nowrap;">'+diasUteisTxt(l.dias) +
+            (l.noPrazo ? '' : ' <span style="font-weight:800;">(+'+diasUteisTxt(l.atraso)+')</span>') +
+            (l.novoPrazo ? '<div style="font-size:11px;font-weight:400;color:var(--ink-soft);">novo prazo do lab.: '+fmtDate(l.novoPrazo)+'</div>' : '') +
+          '</td>' +
+        '</tr>';
+      }).join('') +
+      '</tbody></table></div>';
+
+    return cabecalho +
+      '<div style="display:flex;gap:16px;flex-wrap:wrap;">' +
+        statCard('PRAZO MÉDIO DE ENTREGA', fmtDias(geral.media) + (geral.media === 1 ? ' dia útil' : ' dias úteis'), '#fff', 'var(--ink)') +
+        statCard('ENTREGUES NO PRAZO', geral.pctNoPrazo + '%', geral.pctNoPrazo < 70 ? 'var(--terracota-tint)' : 'var(--green-tint)', geral.pctNoPrazo < 70 ? 'var(--terracota-dark)' : 'var(--green-dark)') +
+        statCard('OS ENTREGUES', geral.total, '#fff', 'var(--ink)') +
+      '</div>' +
+      '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:16px;">' +
+        quadro('Por laboratório', agrupar('laboratorio')) +
+        quadro('Por tipo de lente', agrupar('tipo')) +
+      '</div>' +
+      tabela + aviso;
+  }
+
+  // ==== EQUIPES-INICIO ==== (testes/teste-leitor.html também testa este trecho)
+  // Índice de execução do processo por loja (só o admin vê). Regras de execução do processo:
+  //  • Uso do app: entrar em todo dia útil.
+  //  • Importação do PDF: pelo menos 2 vezes por semana.
+  //  • Cadastro completo: pedidos criados no período com nome do cliente e laboratório.
+  //  • Urgentes: 1ª cobrança em até 1 dia útil depois do checkpoint de urgência.
+  //  • Cobrança diária: depois disso, um registro por dia útil até a entrega; um novo prazo informado
+  //    pelo laboratório suspende a cobrança até a nova data.
+  // Todas as etapas valem igual. Só contam ações feitas com o login da loja. O dia de hoje não entra
+  // na nota (ainda não acabou). Antes de INICIO_REGISTRO usa-se o que já estava gravado nos pedidos.
+  var TIPOS_COBRANCA = { contato_mesmo: 1, contato_novo: 1, contato_destaque: 1, cobranca_lote: 1, whatsapp: 1 /* botão antigo, até 15/10 */ };
+  var ETAPAS_EQUIPE = [
+    ['uso', 'Uso do app (todo dia útil)'],
+    ['importacao', 'Importação do PDF (2x por semana)'],
+    ['cadastro', 'Cadastro completo (nome e laboratório)'],
+    ['urgentes', 'Urgentes cobrados em até 1 dia útil'],
+    ['diaria', 'Cobrança diária até a entrega']
+  ];
+
+  function diasUteisDoIntervalo(ini, fim){
+    var lista = [];
+    if (!dataValida(ini) || !dataValida(fim) || ini > fim) return lista;
+    var d = new Date(ini + 'T00:00:00'), f = new Date(fim + 'T00:00:00');
+    while (d <= f){ if (d.getDay() !== 0 && d.getDay() !== 6) lista.push(toISO(d)); d.setDate(d.getDate() + 1); }
+    return lista;
+  }
+  function diaAnterior(dia){ var d = new Date(dia + 'T00:00:00'); d.setDate(d.getDate() - 1); return toISO(d); }
+
+  // períodos: esta semana / semana passada / este mês / mês passado, e o período anterior de cada um
+  function periodoEquipe(chave, hoje){
+    var h = new Date(hoje + 'T00:00:00');
+    function segunda(d){ var x = new Date(d); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; }
+    function mais(d, n){ var x = new Date(d); x.setDate(x.getDate() + n); return x; }
+    var ini, fim;
+    if (chave === 'semana'){ ini = segunda(h); fim = mais(ini, 6); }
+    else if (chave === 'semana_passada'){ ini = mais(segunda(h), -7); fim = mais(ini, 6); }
+    else if (chave === 'mes'){ ini = new Date(h.getFullYear(), h.getMonth(), 1); fim = new Date(h.getFullYear(), h.getMonth() + 1, 0); }
+    else { ini = new Date(h.getFullYear(), h.getMonth() - 1, 1); fim = new Date(h.getFullYear(), h.getMonth(), 0); }
+    return { ini: toISO(ini), fim: toISO(fim) };
+  }
+  var PERIODO_ANTERIOR = { semana: 'semana_passada', mes: 'mes_passado' };
+  function periodoAnteriorEquipe(chave, hoje){
+    if (PERIODO_ANTERIOR[chave]) return periodoEquipe(PERIODO_ANTERIOR[chave], hoje);
+    var p = periodoEquipe(chave, hoje), d = new Date(p.ini + 'T00:00:00');
+    if (chave === 'semana_passada'){ d.setDate(d.getDate() - 7); return { ini: toISO(d), fim: diaAnterior(p.ini) }; }
+    return { ini: toISO(new Date(d.getFullYear(), d.getMonth() - 1, 1)), fim: diaAnterior(p.ini) };
+  }
+
+  function checkpointUrgencia(p){
+    if (!dataValida(p.previsaoOriginal)) return null;
+    if (p.tipo === 'especial'){
+      var prazoDias = p.prazoDias || businessDaysBetween(p.dataPedido, p.previsaoOriginal);
+      return subBusinessDays(p.previsaoOriginal, prazoDias > 3 ? 2 : 1);
+    }
+    return subBusinessDays(p.previsaoOriginal, 2);
+  }
+  // dia em que o pedido passou a "valer" para a loja: o checkpoint de urgência, ou o cadastro, se foi depois
+  function inicioUrgencia(p){
+    var cu = checkpointUrgencia(p);
+    if (!cu) return null;
+    return dataValida(p.criadoEm) && p.criadoEm > cu ? p.criadoEm : cu;
+  }
+  function diaDaEntrega(p){ return p.entregue ? (dataEntregaDaOS(p) || (dataValida(p.dataEntrega) ? p.dataEntrega : null)) : null; }
+
+  // dias em que houve cobrança de cada pedido (registro da loja; antes do registro, o que está no pedido)
+  function mapaCobrancas(pedidos, atividades){
+    var mapa = {};
+    function add(id, dia){ if (dataValida(dia)) (mapa[id] = mapa[id] || {})[dia] = true; }
+    atividades.forEach(function(a){ if (a.por === 'loja' && TIPOS_COBRANCA[a.tipo] && a.pedidoId) add(a.pedidoId, a.dia); });
+    pedidos.forEach(function(p){
+      var antigos = [];
+      if (p.contato && p.contato.registradoEm) antigos.push(p.contato.registradoEm);
+      Object.keys(p.lembretes || {}).forEach(function(d){ antigos.push(d); });
+      Object.keys(p.historico || {}).forEach(function(d){ antigos.push(d); });
+      antigos.forEach(function(d){ if (d < INICIO_REGISTRO) add(p.id, d); });
+    });
+    return mapa;
+  }
+  // períodos em que o laboratório deu novo prazo: não há cobrança diária entre o registro e a nova data
+  function suspensoesDoPedido(p, atividades){
+    var lista = [];
+    if (p.contato && p.contato.tipo === 'novo' && dataValida(p.contato.registradoEm) && dataValida(p.contato.novaPrevisao)) lista.push([p.contato.registradoEm, p.contato.novaPrevisao]);
+    atividades.forEach(function(a){ if (a.pedidoId === p.id && a.tipo === 'contato_novo' && dataValida(a.dia) && dataValida(a.novaPrevisao)) lista.push([a.dia, a.novaPrevisao]); });
+    return lista;
+  }
+  function cobrancaExigida(p, dia, suspensoes){
+    var base = inicioUrgencia(p);
+    if (!base) return false;
+    var desde = addBusinessDays(base, 1);
+    if (dia < desde) return false;
+    var ent = diaDaEntrega(p);
+    if (ent && dia >= ent) return false;
+    return !suspensoes.some(function(s){ return dia > s[0] && dia < s[1]; });
+  }
+
+  function calcularEquipes(pedidos, atividades, ini, fim, hoje){
+    var ontem = diaAnterior(hoje);
+    var avaliados = diasUteisDoIntervalo(ini, fim < ontem ? fim : ontem); // hoje fica de fora
+    var cobr = mapaCobrancas(pedidos, atividades);
+    var resultado = {};
+    LOJAS.forEach(function(loja){
+      var pedsL = pedidos.filter(function(p){ return p.loja === loja; });
+      var atvL = atividades.filter(function(a){ return a.loja === loja && a.por === 'loja'; });
+      var etapas = {};
+
+      // 1. uso do app — só existe registro a partir de INICIO_REGISTRO
+      var diasUso = avaliados.filter(function(d){ return d >= INICIO_REGISTRO; });
+      var usados = {}; atvL.forEach(function(a){ usados[a.dia] = true; });
+      var nUso = diasUso.filter(function(d){ return usados[d]; }).length;
+      etapas.uso = diasUso.length ? { feito: nUso, total: diasUso.length, txt: nUso + ' de ' + diasUso.length + ' dias úteis com uso' } : null;
+
+      // 2. importação — dias distintos com PDF importado (hoje conta como feito)
+      var fimImp = fim < hoje ? fim : hoje;
+      var diasImp = {};
+      atvL.forEach(function(a){ if (a.tipo === 'importacao' && a.dia >= ini && a.dia <= fimImp) diasImp[a.dia] = true; });
+      pedsL.forEach(function(p){ if (p.origemImportacao && dataValida(p.criadoEm) && p.criadoEm < INICIO_REGISTRO && p.criadoEm >= ini && p.criadoEm <= fimImp) diasImp[p.criadoEm] = true; });
+      var nImp = Object.keys(diasImp).length;
+      var esperadas = avaliados.length ? Math.max(1, Math.round(avaliados.length * 2 / 5)) : 0;
+      etapas.importacao = esperadas ? { feito: Math.min(nImp, esperadas), total: esperadas, txt: nImp + ' importaç' + (nImp === 1 ? 'ão' : 'ões') + ' (meta: ' + esperadas + ')' } : null;
+
+      // 3. cadastro completo — pedidos criados no período
+      var criados = pedsL.filter(function(p){ return dataValida(p.criadoEm) && p.criadoEm >= ini && p.criadoEm <= fim; });
+      var completos = criados.filter(function(p){ return !clienteSemNome((p.cliente || '').trim()) && p.laboratorio && p.laboratorio !== 'Não informado'; }).length;
+      etapas.cadastro = criados.length ? { feito: completos, total: criados.length, txt: completos + ' de ' + criados.length + ' pedidos novos completos' } : null;
+
+      // 4. urgentes cobrados em até 1 dia útil
+      var okU = 0, falhaU = 0, pendentesU = 0;
+      pedsL.forEach(function(p){
+        var base = inicioUrgencia(p);
+        if (!base || base < ini || base > fim) return;
+        var ent = diaDaEntrega(p);
+        if (ent && ent <= base) return; // chegou antes de ficar urgente
+        var prazo = addBusinessDays(base, 1);
+        var dias = Object.keys(cobr[p.id] || {});
+        if (dias.some(function(d){ return d <= prazo; })){ okU++; return; }
+        if (prazo >= hoje){ pendentesU++; return; } // ainda dá tempo
+        if (ent && ent <= prazo) return;              // chegou dentro do prazo de cobrança
+        falhaU++;
+      });
+      etapas.urgentes = (okU + falhaU) ? { feito: okU, total: okU + falhaU, txt: okU + ' de ' + (okU + falhaU) + ' cobrados a tempo' + (pendentesU ? ' · ' + pendentesU + ' ainda no prazo' : '') } : null;
+
+      // 5. cobrança diária (pedido × dia útil)
+      var exigidos = 0, feitos = 0;
+      pedsL.forEach(function(p){
+        var susp = suspensoesDoPedido(p, atividades);
+        avaliados.forEach(function(d){
+          if (dataValida(p.criadoEm) && d < p.criadoEm) return;
+          if (!cobrancaExigida(p, d, susp)) return;
+          exigidos++;
+          if (cobr[p.id] && cobr[p.id][d]) feitos++;
+        });
+      });
+      etapas.diaria = exigidos ? { feito: feitos, total: exigidos, txt: feitos + ' de ' + exigidos + ' cobranças diárias feitas' } : null;
+
+      var notas = ETAPAS_EQUIPE.map(function(e){ var x = etapas[e[0]]; if (x) x.pct = Math.round(100 * x.feito / x.total); return x ? x.pct : null; })
+        .filter(function(v){ return v !== null; });
+      var contagem = {};
+      atvL.forEach(function(a){ if (a.dia >= ini && a.dia <= fim) contagem[a.tipo] = (contagem[a.tipo] || 0) + 1; });
+      resultado[loja] = { etapas: etapas, indice: notas.length ? Math.round(notas.reduce(function(s, v){ return s + v; }, 0) / notas.length) : null, contagem: contagem };
+    });
+    return { lojas: resultado, diasAvaliados: avaliados.length };
+  }
+
+  // pedidos que hoje precisam de cobrança e ficaram sem nenhuma no último dia útil
+  function pedidosDeixadosDeLado(pedidos, atividades, hoje){
+    var cobr = mapaCobrancas(pedidos, atividades);
+    var ontemUtil = subBusinessDays(hoje, 1);
+    var lista = [];
+    pedidos.forEach(function(p){
+      if (p.entregue) return;
+      var susp = suspensoesDoPedido(p, atividades);
+      if (!cobrancaExigida(p, hoje, susp) || !cobrancaExigida(p, ontemUtil, susp)) return;
+      var dias = Object.keys(cobr[p.id] || {}).sort();
+      var ultima = dias.length ? dias[dias.length - 1] : null;
+      if (ultima && ultima >= ontemUtil) return;
+      var desde = addBusinessDays(inicioUrgencia(p), 1);
+      var semCobrar = businessDaysBetween(ultima && ultima > desde ? ultima : diaAnterior(desde), hoje);
+      lista.push({ p: p, ultima: ultima, semCobrar: semCobrar });
+    });
+    return lista.sort(function(a, b){ return b.semCobrar - a.semCobrar; });
+  }
+  // ==== EQUIPES-FIM ====
+
+  async function carregarAtividades(){
+    var hoje = todayStr();
+    var chave = state.equipesPeriodo || 'semana';
+    var desde = periodoAnteriorEquipe(chave, hoje).ini;
+    if (state.equipes && state.equipes.desde <= desde && !state.equipes.erro && (Date.now() - state.equipes.em) < 60000) return;
+    state.equipes = Object.assign({}, state.equipes, { carregando: true, erro: null });
+    render();
+    try{
+      var snap = await comTempoLimite(getDocs(query(collection(fs, 'atividades'), where('dia', '>=', desde))), 20000, MSG_SEM_CONEXAO);
+      state.equipes = { carregando: false, erro: null, desde: desde, em: Date.now(), atividades: snap.docs.map(function(d){ return d.data(); }) };
+    } catch(e){
+      state.equipes = { carregando: false, erro: 'Não foi possível carregar as atividades: ' + e.message, desde: desde, em: 0, atividades: [] };
+    }
+    render();
+  }
+
+  // ---------- quem abriu o app (horário da 1ª abertura de cada loja por dia) ----------
+  function horaSP(iso){
+    try{ return new Intl.DateTimeFormat('pt-BR', {timeZone:'America/Sao_Paulo', hour:'2-digit', minute:'2-digit'}).format(new Date(iso)); }
+    catch(e){ return '—'; }
+  }
+  function aberturasPorDia(atividades){
+    var mapa = {};
+    (atividades || []).forEach(function(a){
+      if (a.tipo !== 'acesso' || a.por !== 'loja' || !a.loja || !dataValida(a.dia) || !a.quando) return;
+      var d = (mapa[a.dia] = mapa[a.dia] || {});
+      var x = d[a.loja];
+      if (!x) d[a.loja] = { primeira: a.quando, ultima: a.quando, vezes: 1 };
+      else { if (a.quando < x.primeira) x.primeira = a.quando; if (a.quando > x.ultima) x.ultima = a.quando; x.vezes++; }
+    });
+    return mapa;
+  }
+  function aberturasHtml(atividades, hoje){
+    var mapa = aberturasPorDia(atividades);
+    var dias = [];
+    var d = new Date(hoje + 'T00:00:00');
+    while (dias.length < 7){
+      var iso = toISO(d);
+      if (d.getDay() !== 0 || mapa[iso]) dias.push(iso);
+      d.setDate(d.getDate() - 1);
+    }
+    var nomesDia = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+    var cardsHoje = LOJAS.map(function(loja){
+      var x = mapa[hoje] && mapa[hoje][loja];
+      return '<div style="flex:1;min-width:180px;padding:12px 14px;border-radius:10px;background:'+(x ? 'var(--green-tint)' : 'var(--terracota-tint)')+';">' +
+        '<div style="font-size:12px;font-weight:700;color:var(--ink-soft);">'+escapeHtml(loja)+'</div>' +
+        (x ? '<div style="font-size:24px;font-weight:800;color:var(--green-dark);">'+horaSP(x.primeira)+'</div>' +
+             '<div style="font-size:11px;color:var(--ink-soft);">abriu hoje'+(x.vezes > 1 ? ' · '+x.vezes+' computadores/celulares' : '')+'</div>'
+           : '<div style="font-size:18px;font-weight:800;color:var(--terracota-dark);">Ainda não abriu</div>' +
+             '<div style="font-size:11px;color:var(--ink-soft);">nenhum acesso hoje</div>') +
+      '</div>';
+    }).join('');
+    var linhas = dias.map(function(dia){
+      var dt = new Date(dia + 'T00:00:00');
+      return '<tr><td style="font-weight:700;">'+nomesDia[dt.getDay()]+' '+fmtDate(dia)+(dia === hoje ? ' (hoje)' : '')+'</td>' +
+        LOJAS.map(function(loja){
+          var x = mapa[dia] && mapa[dia][loja];
+          return x ? '<td style="font-weight:700;color:var(--green-dark);">'+horaSP(x.primeira)+'</td>' : '<td style="color:var(--terracota-dark);">não abriu</td>';
+        }).join('') + '</tr>';
+    }).join('');
+    return '<div class="card" style="margin-bottom:16px;display:flex;flex-direction:column;gap:12px;">' +
+      '<div><div style="font-size:15px;font-weight:800;">Quem abriu o app</div>' +
+      '<div style="font-size:12px;color:var(--ink-soft);margin-top:2px;">Horário em que cada loja abriu o app de controle pela primeira vez no dia (login da loja; o acesso do admin não conta).</div></div>' +
+      '<div style="display:flex;gap:12px;flex-wrap:wrap;">'+cardsHoje+'</div>' +
+      '<div style="overflow:auto;"><table><thead><tr><th>Dia</th>'+LOJAS.map(function(l){ return '<th>'+escapeHtml(l)+'</th>'; }).join('')+'</tr></thead><tbody>'+linhas+'</tbody></table></div>' +
+    '</div>';
+  }
+
+  function viewEquipes(){
+    var hoje = todayStr();
+    var chave = state.equipesPeriodo || 'semana';
+    var per = periodoEquipe(chave, hoje), ant = periodoAnteriorEquipe(chave, hoje);
+    var botoes = [['semana', 'Esta semana'], ['semana_passada', 'Semana passada'], ['mes', 'Este mês'], ['mes_passado', 'Mês passado']].map(function(o){
+      return '<button data-periodo="' + o[0] + '" class="btn ' + (chave === o[0] ? 'btn-primary' : 'btn-outline') + '" style="padding:8px 14px;">' + o[1] + '</button>';
+    }).join('');
+    var topo = '<div style="display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:16px;">' +
+      '<div><div style="font-size:20px;font-weight:800;">Equipes — execução do processo</div>' +
+      '<div style="font-size:13px;color:var(--ink-soft);margin-top:4px;">Período: ' + fmtDate(per.ini) + ' a ' + fmtDate(per.fim) + ' · comparado com ' + fmtDate(ant.ini) + ' a ' + fmtDate(ant.fim) + ' · o dia de hoje não entra na nota.</div></div>' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap;">' + botoes + '</div></div>';
+
+    var eq = state.equipes;
+    if (!eq || eq.carregando) return topo + '<div class="card" style="text-align:center;color:var(--ink-soft);">Carregando as atividades das lojas…</div>';
+    if (eq.erro) return topo + '<div class="card" style="color:var(--terracota-dark);">' + escapeHtml(eq.erro) + '</div>';
+
+    var atual = calcularEquipes(pedidosCache, eq.atividades, per.ini, per.fim, hoje);
+    var anterior = calcularEquipes(pedidosCache, eq.atividades, ant.ini, ant.fim, hoje);
+    function cor(pct){ return pct == null ? 'var(--ink-soft)' : pct < 70 ? 'var(--terracota-dark)' : pct < 90 ? 'var(--amber-dark)' : 'var(--green-dark)'; }
+    function fundo(pct){ return pct == null ? '#fff' : pct < 70 ? 'var(--terracota-tint)' : pct < 90 ? 'var(--amber-tint)' : 'var(--green-tint)'; }
+
+    var cards = LOJAS.map(function(loja){
+      var r = atual.lojas[loja], a = anterior.lojas[loja];
+      var delta = (r.indice != null && a.indice != null) ? r.indice - a.indice : null;
+      return '<div class="card" style="flex:1;min-width:280px;display:flex;flex-direction:column;gap:12px;">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;">' +
+          '<div style="font-size:16px;font-weight:800;">' + escapeHtml(loja) + '</div>' +
+          (delta != null ? '<div style="font-size:12px;font-weight:700;color:' + (delta >= 0 ? 'var(--green-dark)' : 'var(--terracota-dark)') + ';">' + (delta >= 0 ? '▲ +' : '▼ ') + delta + ' vs. anterior</div>' : '') +
+        '</div>' +
+        '<div style="background:' + fundo(r.indice) + ';border-radius:10px;padding:12px 14px;">' +
+          '<div style="font-size:11px;font-weight:700;color:' + cor(r.indice) + ';">ÍNDICE DE EXECUÇÃO</div>' +
+          '<div style="font-size:30px;font-weight:800;color:' + cor(r.indice) + ';">' + (r.indice == null ? '—' : r.indice + '%') + '</div>' +
+        '</div>' +
+        ETAPAS_EQUIPE.map(function(e){
+          var x = r.etapas[e[0]];
+          return '<div><div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;"><span style="font-weight:700;">' + e[1] + '</span>' +
+            '<span style="font-weight:800;color:' + cor(x && x.pct) + ';">' + (x ? x.pct + '%' : '—') + '</span></div>' +
+            '<div style="height:6px;background:var(--bg);border-radius:999px;overflow:hidden;margin:4px 0 2px;"><div style="width:' + (x ? x.pct : 0) + '%;height:100%;background:' + cor(x && x.pct) + ';"></div></div>' +
+            '<div style="font-size:11px;color:var(--ink-soft);">' + (x ? escapeHtml(x.txt) : 'sem dados neste período') + '</div></div>';
+        }).join('') +
+      '</div>';
+    }).join('');
+
+    var quadroAberturas = aberturasHtml(eq.atividades, hoje);
+    var deixados = pedidosDeixadosDeLado(pedidosCache, eq.atividades, hoje);
+    var tabelaDeixados = '<div class="card" style="padding:0;overflow:auto;margin-top:16px;">' +
+      '<div style="padding:14px 16px 4px;font-size:15px;font-weight:800;">Pedidos deixados de lado hoje <span style="font-weight:400;font-size:12px;color:var(--ink-soft);">— precisam de cobrança diária e não tiveram nenhuma no último dia útil</span></div>' +
+      (deixados.length
+        ? '<table><thead><tr><th>Loja</th><th>OS</th><th>Cliente</th><th>Laboratório</th><th>Última cobrança</th><th>Sem cobrança</th></tr></thead><tbody>' +
+          deixados.map(function(x){
+            return '<tr data-open="' + x.p.id + '" style="cursor:pointer;"><td>' + escapeHtml(x.p.loja) + '</td><td style="font-weight:700;">' + escapeHtml(x.p.numeroOS || '—') + '</td><td>' + escapeHtml(x.p.cliente) + '</td><td>' + escapeHtml(x.p.laboratorio || '—') + '</td>' +
+              '<td>' + (x.ultima ? fmtDate(x.ultima) : 'nunca') + '</td><td style="color:var(--terracota-dark);font-weight:700;">' + diasUteisTxt(x.semCobrar) + '</td></tr>';
+          }).join('') + '</tbody></table>'
+        : '<div style="padding:8px 16px 16px;color:var(--green-dark);font-weight:700;">Nenhum — todas as cobranças diárias estão em dia. 👏</div>') +
+      '</div>';
+
+    var NOMES = [['acesso', 'Dias com uso'], ['importacao', 'Importações de PDF'], ['novo_pedido', 'Pedidos cadastrados à mão'], ['chegou', 'Óculos marcados “chegou”'],
+      ['cobranca_lote', 'Pedidos cobrados em lote'], ['contato_mesmo', 'Contato: mesmo prazo'], ['contato_novo', 'Contato: novo prazo'], ['contato_destaque', 'Contato na Área em Destaque'], ['whatsapp', 'Botão WhatsApp (antigo)'], ['exclusao', 'Lançamentos apagados']];
+    var tabelaAtividades = '<div class="card" style="padding:0;overflow:auto;margin-top:16px;">' +
+      '<div style="padding:14px 16px 4px;font-size:15px;font-weight:800;">Atividades registradas no período</div>' +
+      '<table><thead><tr><th>Atividade</th>' + LOJAS.map(function(l){ return '<th>' + escapeHtml(l) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+      NOMES.map(function(n){ return '<tr><td>' + n[1] + '</td>' + LOJAS.map(function(l){ return '<td>' + (atual.lojas[l].contagem[n[0]] || 0) + '</td>'; }).join('') + '</tr>'; }).join('') +
+      '</tbody></table></div>';
+
+    var nota = '<div style="font-size:12px;color:var(--ink-soft);margin-top:14px;line-height:1.5;">ℹ️ O registro detalhado das atividades começou em ' + fmtDate(INICIO_REGISTRO) + '/' + INICIO_REGISTRO.slice(0, 4) +
+      '. Antes disso, o índice usa só o que já estava gravado nos pedidos (contatos registrados, cobranças da Área em Destaque e pedidos importados) — “Uso do app” não tem dados antes dessa data. ' +
+      'Só contam ações feitas com o login da loja (o que o admin faz não entra). A cobrança em lote conta quando a loja clica em “Marcar como cobrados hoje” depois de enviar a mensagem ao laboratório.</div>';
+
+    return topo + quadroAberturas + '<div style="display:flex;gap:16px;flex-wrap:wrap;">' + cards + '</div>' + tabelaDeixados + tabelaAtividades + nota;
+  }
+
+  function modalNovoPedido(){
+    var f = state.novoForm;
+    var isAdmin = state.session.role === 'admin';
+    var lojaField = isAdmin
+      ? '<div style="flex:1;"><label>Loja</label><select id="f-loja" style="width:100%;">' +
+          LOJAS.map(function(l){ return '<option value="'+l+'" '+((f.loja||LOJAS[0])===l?'selected':'')+'>'+l+'</option>'; }).join('') +
+        '</select></div>'
+      : '<div style="flex:1;"><label>Loja</label><input type="text" value="'+escapeHtml(state.session.loja)+'" disabled style="width:100%;background:#f3f0ea;color:var(--ink-soft);"></div>';
+    var isEspecial = f.tipo === 'especial';
+    var qtd = Math.max(1, parseInt(f.quantidade, 10) || 1);
+    var previewCodigos = qtd > 1 ? gerarItens(f.numeroOS || 'xxxx', qtd).map(function(it){ return it.codigo; }).join(' · ') : '';
+    return '<div class="modal-backdrop"><div class="modal">' +
+      '<div style="font-size:18px;font-weight:800;">Novo pedido</div>' +
+      '<div style="display:flex;gap:10px;">' +
+        '<div style="flex:2;"><label>Cliente</label><input id="f-cliente" type="text" value="'+escapeHtml(f.cliente||'')+'" placeholder="Nome do cliente" style="width:100%;"></div>' +
+        '<div style="flex:1;"><label>Nº OS</label><input id="f-os" type="text" value="'+escapeHtml(f.numeroOS||'')+'" placeholder="Ex: 44007" style="width:100%;"></div>' +
+        '<div style="flex:1;"><label>Qtd. de óculos</label><input id="f-qtd" type="number" min="1" value="'+qtd+'" style="width:100%;"></div>' +
+      '</div>' +
+      (qtd > 1 ? '<div style="font-size:12px;color:var(--ink-soft);margin-top:-8px;">Serão criados '+qtd+' itens com códigos: '+escapeHtml(previewCodigos)+'</div>' : '') +
+      '<div style="display:flex;gap:10px;">' +
+        '<div style="flex:1;"><label>Tipo de lente</label><select id="f-tipo" style="width:100%;">' +
+          '<option value="pronta" '+(f.tipo==='pronta'?'selected':'')+'>Pronta (7 dias úteis)</option>' +
+          '<option value="surfacada" '+(f.tipo==='surfacada'||!f.tipo?'selected':'')+'>Surfaçada (10 dias úteis)</option>' +
+          '<option value="especial" '+(isEspecial?'selected':'')+'>Especial (prazo manual)</option>' +
+        '</select></div>' +
+        lojaField +
+      '</div>' +
+      (isEspecial ? '<div><label>Prazo especial (dias úteis)</label><input id="f-prazo-dias" type="number" min="1" value="'+(f.prazoDias||'')+'" placeholder="Ex: 3 ou 15" style="width:100%;"></div>' : '') +
+      '<div><label>Laboratório</label><select id="f-lab" style="width:100%;">' +
+        LABORATORIOS_FIXOS.map(function(l){ return '<option value="'+l+'" '+((f.laboratorio||LABORATORIOS_FIXOS[0])===l?'selected':'')+'>'+l+'</option>'; }).join('') +
+      '</select></div>' +
+      '<div><label>Data do pedido</label><input id="f-data" type="date" value="'+(f.dataPedido||todayStr())+'" style="width:100%;"></div>' +
+      (f.erro ? '<div style="font-size:12px;color:var(--terracota-dark);font-weight:700;">'+escapeHtml(f.erro)+'</div>' : '') +
+      '<div style="display:flex;gap:10px;margin-top:6px;">' +
+        '<button id="cancelar-novo" class="btn btn-outline" style="flex:1;">Cancelar</button>' +
+        '<button id="salvar-novo" class="btn btn-primary" style="flex:1;" '+(state.saving?'disabled':'')+'>'+(state.saving?'Salvando…':'Salvar pedido')+'</button>' +
+      '</div>' +
+    '</div></div>';
+  }
+
+  function explicarPdfVazio(d){
+    if (!d) return 'Nenhum pedido novo foi identificado neste PDF.';
+    if (!d.linhasTexto) return 'Este PDF não tem texto legível (parece ser uma imagem ou digitalização). Exporte o relatório direto do SSOtica em PDF.';
+    if (!d.cabecalho) return 'Não foi possível reconhecer a tabela do relatório (o cabeçalho "Data / Nro. / Cliente" não foi encontrado). Confira se é o relatório de ordens de serviço do SSOtica.';
+    if (!d.osNoPdf) return 'A tabela foi reconhecida, mas nenhuma linha com data e número de OS foi lida. O formato do relatório pode ter mudado.';
+    if (d.jaExistentes >= d.osNoPdf) return 'Todas as ' + d.osNoPdf + ' OS deste PDF já estão cadastradas no sistema — nada novo para importar.';
+    return 'Nenhum pedido novo foi identificado neste PDF.';
+  }
+
+  function modalImportarPdf(){
+    var candidatos = state.pdfCandidatos || [];
+    var correcoes = state.pdfCorrecoes || [];
+    var temAlgo = candidatos.length || correcoes.length;
+    var lojaPadrao = state.pdfLoja || (state.session.role === 'admin' ? (state.adminLojaFiltro !== 'todas' ? state.adminLojaFiltro : LOJAS[0]) : state.session.loja);
+    var correcoesHtml = correcoes.length
+      ? '<div style="font-size:14px;font-weight:800;margin:4px 0 8px;">Corrigir nome do cliente em pedidos já cadastrados</div>' +
+        correcoes.map(function(c, i){
+          if (c.salvo) return '<div style="border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin-bottom:10px;background:var(--green-tint);font-size:12px;color:var(--green-dark);font-weight:700;">✓ OS '+escapeHtml(c.numeroOS)+' agora está como '+escapeHtml(c.cliente)+'</div>';
+          return '<div id="cor-linha-'+i+'" class="imp-linha" style="border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:10px;display:flex;gap:10px;align-items:flex-end;">' +
+            '<input type="checkbox" id="cor-incluir-'+i+'" '+(c.incluir?'checked':'')+' style="width:auto;margin-bottom:12px;">' +
+            '<div style="font-size:12px;color:var(--ink-soft);min-width:130px;margin-bottom:10px;">OS <b>'+escapeHtml(c.numeroOS)+'</b><br>hoje: '+escapeHtml(c.clienteAtual || '(vazio)')+'</div>' +
+            '<div style="flex:1;"><label>Nome correto (confira/edite)</label><input id="cor-cliente-'+i+'" type="text" value="'+escapeHtml(c.cliente)+'" style="width:100%;"></div>' +
+          '</div>';
+        }).join('')
+      : '';
+    var linhas = !temAlgo
+      ? '<div style="font-size:13px;color:var(--ink-soft);">' + explicarPdfVazio(state.pdfDiag) + '</div>'
+      : (candidatos.length ? '<div style="font-size:14px;font-weight:800;margin:4px 0 8px;">Pedidos novos</div>' : '') + candidatos.map(function(c, i){
+      if (c.salvo){
+        return '<div style="border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin-bottom:10px;background:var(--green-tint);font-size:12px;color:var(--green-dark);font-weight:700;">✓ OS '+escapeHtml(c.numeroOS)+' · '+escapeHtml(c.cliente||c.clienteGuess||'')+' — já salvo</div>';
+      }
+      var isEsp = c.tipo === 'especial';
+      return '<div id="imp-linha-'+i+'" class="imp-linha" style="border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:10px;display:flex;flex-direction:column;gap:8px;">' +
+        '<div style="display:flex;gap:8px;align-items:center;">' +
+          '<input type="checkbox" id="imp-incluir-'+i+'" '+(c.incluir?'checked':'')+' style="width:auto;">' +
+          '<div style="font-size:12px;color:var(--ink-soft);">OS <b>'+escapeHtml(c.numeroOS)+'</b> · '+fmtDate(c.dataPedido)+' · '+escapeHtml(c.laboratorio)+'</div>' +
+        '</div>' +
+        '<div style="display:flex;gap:8px;">' +
+          '<div style="flex:2;"><label>Cliente (confira/edite)</label><input id="imp-cliente-'+i+'" type="text" value="'+escapeHtml(c.cliente||'')+'" placeholder="Digite o nome do cliente" style="width:100%;"></div>' +
+          '<div style="flex:1;"><label>Loja</label><select id="imp-loja-'+i+'" style="width:100%;">' +
+            LOJAS.map(function(l){ return '<option value="'+l+'" '+(l===lojaPadrao?'selected':'')+'>'+l+'</option>'; }).join('') +
+          '</select></div>' +
+          '<div style="flex:1;"><label>Qtd. óculos</label><input id="imp-qtd-'+i+'" data-idx="'+i+'" class="imp-qtd-input" type="number" min="1" value="'+(c.quantidade||1)+'" style="width:100%;"></div>' +
+        '</div>' +
+        (c.textoLido ? '<div style="font-size:11px;color:var(--ink-soft);background:var(--bg);border-radius:6px;padding:6px 10px;">Texto lido no PDF: '+escapeHtml(c.textoLido)+'</div>' : '') +
+        (parseInt(c.quantidade, 10) > 1 ? '<div style="font-size:12px;color:var(--ink-soft);">Códigos gerados: '+escapeHtml(gerarItens(c.numeroOS, c.quantidade).map(function(it){ return it.codigo; }).join(' · '))+'</div>' : '') +
+        '<div style="display:flex;gap:8px;">' +
+          '<div style="flex:1;"><label>Tipo</label><select id="imp-tipo-'+i+'" data-idx="'+i+'" class="imp-tipo-select" style="width:100%;">' +
+            '<option value="pronta" '+(c.tipo==='pronta'?'selected':'')+'>Pronta</option>' +
+            '<option value="surfacada" '+(c.tipo==='surfacada'?'selected':'')+'>Surfaçada</option>' +
+            '<option value="especial" '+(isEsp?'selected':'')+'>Especial</option>' +
+          '</select></div>' +
+          (isEsp ? '<div style="flex:1;"><label>Prazo (dias úteis)</label><input id="imp-prazo-'+i+'" type="number" min="1" value="'+(c.prazoDias||'')+'" style="width:100%;"></div>' : '') +
+        '</div>' +
+      '</div>';
+    }).join('') + correcoesHtml;
+
+    var jaSalvouAlgo = candidatos.concat(correcoes).some(function(c){ return c.salvo; });
+    return '<div class="modal-backdrop"><div class="modal" style="width:640px;">' +
+      '<div style="font-size:18px;font-weight:800;">Revisar importação do PDF</div>' +
+      '<div style="font-size:12px;color:var(--ink-soft);">'+(state.pdfLoja ? 'Relatório da loja <b>'+escapeHtml(state.pdfLoja)+'</b>. ' : '')+'Leitura automática — confira cada linha antes de salvar, principalmente o nome do cliente. Desmarque o que não quiser salvar.</div>' +
+      (state.pdfDiag && state.pdfDiag.modoSimples ? '<div style="font-size:12px;color:var(--amber-dark);background:var(--amber-tint);border-radius:8px;padding:8px 12px;">A tabela deste relatório veio num formato diferente, então a leitura foi simplificada: confira e preencha o <b>nome do cliente</b> de cada pedido usando o "Texto lido no PDF".</div>' : '') +
+      '<div id="imp-lista" style="max-height:50vh;overflow:auto;">'+linhas+'</div>' +
+      (state.importErro ? '<div style="font-size:12px;color:var(--terracota-dark);font-weight:700;">'+escapeHtml(state.importErro)+'</div>' : '') +
+      '<div id="imp-aviso" style="font-size:12px;color:var(--terracota-dark);font-weight:700;"></div>' +
+      '<div style="display:flex;gap:10px;margin-top:6px;">' +
+        '<button id="cancelar-importar" class="btn btn-outline" style="flex:1;" '+(state.saving?'disabled':'')+'>'+(jaSalvouAlgo || !temAlgo ? 'Fechar' : 'Cancelar')+'</button>' +
+        (!temAlgo ? '' : '<button id="salvar-importados" class="btn btn-primary" style="flex:1;" '+(state.saving?'disabled':'')+'>'+(state.saving ? ('Salvando… ' + (state.importProgresso ? state.importProgresso.feitos + '/' + state.importProgresso.total : '')) : (state.importErro ? 'Tentar de novo' : 'Salvar selecionados'))+'</button>') +
+      '</div>' +
+    '</div></div>';
+  }
+
+  function abrirCobranca(){
+    var hoje = todayStr();
+    var sel = {};
+    gruposCobranca(escopoPedidos(), hoje).forEach(function(g){ g.itens.forEach(function(it){ sel[it.p.id] = !it.cobradoHoje; }); });
+    state.cobranca = { sel: sel, copiado: {}, feito: {}, salvando: null, erro: null };
+    state.modal = 'cobranca';
+    render();
+  }
+  function itensSelecionados(g){ return g.itens.filter(function(it){ return state.cobranca.sel[it.p.id]; }); }
+
+  async function marcarCobradosHoje(chave){
+    var hoje = todayStr();
+    var g = gruposCobranca(escopoPedidos(), hoje).filter(function(x){ return x.chave === chave; })[0];
+    if (!g) return;
+    var itens = itensSelecionados(g);
+    state.cobranca.salvando = chave; state.cobranca.erro = null; render();
+    var feitos = 0;
+    try{
+      for (var i = 0; i < itens.length; i++){
+        var p = itens[i].p;
+        var patch = { lembretes: {} };
+        patch.lembretes[hoje] = true;
+        if (!(p.historico && p.historico[hoje])){ // não apaga uma observação já registrada hoje
+          patch.historico = {}; patch.historico[hoje] = { observacao: 'Cobrança enviada ao laboratório (em lote)', registradoEm: hoje };
+        }
+        await gravar(doc(fs, 'pedidos', p.id), patch, { merge: true });
+        registrarAtividade('cobranca_lote', p);
+        state.cobranca.sel[p.id] = false;
+        feitos++;
+      }
+      state.cobranca.feito[chave] = feitos;
+    } catch(e){
+      state.cobranca.erro = { chave: chave, msg: (feitos ? feitos + ' de ' + itens.length + ' marcados. ' : '') + 'Erro: ' + e.message };
+    }
+    state.cobranca.salvando = null; render();
+  }
+
+  // Copia para a área de transferência: tenta o jeito moderno e, se o navegador recusar, o clássico.
+  function copiarTextoClassico(texto){
+    var ta = document.createElement('textarea'); ta.value = texto; ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed'; ta.style.top = '0'; ta.style.left = '0'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.focus(); ta.select();
+    var ok = false; try{ ok = document.execCommand('copy'); } catch(e){}
+    document.body.removeChild(ta);
+    return ok;
+  }
+  function copiarTexto(texto){
+    return new Promise(function(ok, falha){
+      function classico(){ copiarTextoClassico(texto) ? ok() : falha(new Error('cópia bloqueada')); }
+      if (navigator.clipboard && window.isSecureContext){
+        navigator.clipboard.writeText(texto).then(ok, classico);
+      } else classico();
+    });
+  }
+
+  function modalCobranca(){
+    var hoje = todayStr();
+    var grupos = gruposCobranca(escopoPedidos(), hoje);
+    var c = state.cobranca;
+    var mostrarLoja = state.session.role === 'admin';
+    var corpo = grupos.length ? grupos.map(function(g){
+      var selec = itensSelecionados(g);
+      var semLab = g.laboratorio === 'Não informado';
+      var salvandoEste = c.salvando === g.chave;
+      return '<div style="border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:14px;display:flex;flex-direction:column;gap:10px;">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">' +
+          '<div style="font-size:15px;font-weight:800;">' + escapeHtml(g.laboratorio) + (mostrarLoja ? ' <span style="font-weight:600;color:var(--ink-soft);font-size:13px;">· loja ' + escapeHtml(g.loja) + '</span>' : '') + '</div>' +
+          '<div style="font-size:12px;color:var(--ink-soft);">' + g.itens.length + ' pedido' + (g.itens.length === 1 ? '' : 's') + '</div>' +
+        '</div>' +
+        (semLab ? '<div style="font-size:12px;color:var(--terracota-dark);font-weight:700;">⚠ Pedidos sem laboratório informado — confira para qual laboratório enviar (e ajuste o pedido).</div>' : '') +
+        '<div style="display:flex;flex-direction:column;gap:4px;">' + g.itens.map(function(it){
+          return '<label style="display:flex;gap:8px;align-items:center;font-size:13px;font-weight:400;color:var(--ink);margin:0;cursor:pointer;">' +
+            '<input type="checkbox" id="cob-sel-' + it.p.id + '" data-cob-sel="' + it.p.id + '" ' + (c.sel[it.p.id] ? 'checked' : '') + ' style="width:auto;">' +
+            '<span>' + escapeHtml(it.linha) + '</span>' +
+            (it.cobradoHoje ? ' <span class="chip-cobrado">✓ cobrado hoje</span>' : '') +
+          '</label>';
+        }).join('') + '</div>' +
+        (selec.length
+          ? '<textarea class="cob-msg" readonly rows="' + Math.min(selec.length + 5, 12) + '" style="width:100%;font-size:12px;background:var(--bg);resize:vertical;">' + escapeHtml(mensagemLote(g, selec)) + '</textarea>'
+          : '<div style="font-size:12px;color:var(--ink-soft);">Nenhum pedido selecionado neste laboratório.</div>') +
+        (c.erro && c.erro.chave === g.chave ? '<div style="font-size:12px;color:var(--terracota-dark);font-weight:700;">' + escapeHtml(c.erro.msg) + '</div>' : '') +
+        (c.feito[g.chave] ? '<div style="font-size:12px;color:var(--green-dark);font-weight:700;">✓ ' + c.feito[g.chave] + ' pedido' + (c.feito[g.chave] === 1 ? '' : 's') + ' marcado' + (c.feito[g.chave] === 1 ? '' : 's') + ' como cobrado' + (c.feito[g.chave] === 1 ? '' : 's') + ' hoje.</div>' : '') +
+        '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
+          '<button data-cob-copiar="' + escapeHtml(g.chave) + '" class="btn ' + (c.copiado[g.chave] ? 'btn-outline' : 'btn-primary') + '" ' + (selec.length ? '' : 'disabled') + '>' + (c.copiado[g.chave] ? '✓ Copiada — cole na conversa do laboratório' : '📋 Copiar mensagem') + '</button>' +
+          '<button data-cob-marcar="' + escapeHtml(g.chave) + '" class="btn btn-terracota" ' + (selec.length && !c.salvando ? '' : 'disabled') + '>' + (salvandoEste ? 'Marcando…' : 'Marcar ' + selec.length + ' como cobrado' + (selec.length === 1 ? '' : 's') + ' hoje') + '</button>' +
+        '</div>' +
+      '</div>';
+    }).join('') : '<div style="font-size:13px;color:var(--ink-soft);">Nenhum pedido urgente ou atrasado agora — nada para cobrar. 👏</div>';
+
+    return '<div class="modal-backdrop"><div class="modal" style="width:680px;">' +
+      '<div style="font-size:18px;font-weight:800;">Cobrar laboratórios</div>' +
+      '<div style="font-size:12px;color:var(--ink-soft);">Pedidos <b>urgentes</b> e <b>atrasados</b>, juntos por laboratório. Para cada laboratório: <b>1.</b> copie a mensagem, <b>2.</b> cole e envie na conversa do laboratório no WhatsApp, <b>3.</b> clique em “Marcar como cobrados hoje”. Desmarque o que não quiser cobrar agora. Pedidos com novo prazo do laboratório só voltam para cá quando o novo prazo vencer.</div>' +
+      '<div>' + corpo + '</div>' +
+      '<div style="display:flex;justify-content:flex-end;"><button id="fechar-cobranca" class="btn btn-outline">Fechar</button></div>' +
+    '</div></div>';
+  }
+
+  function modalCodigos(){
+    var lojas = state.session.role === 'admin' ? LOJAS : [state.session.loja];
+    var cods = configCache.codigosLabs || {};
+    return '<div class="modal-backdrop"><div class="modal" style="width:560px;">' +
+      '<div style="font-size:18px;font-weight:800;">Códigos da loja nos laboratórios</div>' +
+      '<div style="font-size:12px;color:var(--ink-soft);">O código de cliente que cada laboratório usa para a sua loja. Ele entra na mensagem de cobrança do WhatsApp: “Aqui é da C.O Maricá <b>COD 6772</b>”. Deixe em branco se não tiver.</div>' +
+      lojas.map(function(loja, li){
+        return '<div style="display:flex;flex-direction:column;gap:8px;' + (li ? 'border-top:1px solid var(--border);padding-top:12px;' : '') + '">' +
+          (lojas.length > 1 ? '<div style="font-size:14px;font-weight:800;">Loja ' + escapeHtml(loja) + '</div>' : '') +
+          LABORATORIOS_FIXOS.map(function(lab, i){
+            return '<div style="display:flex;align-items:center;gap:10px;"><label for="f-cod-'+li+'-'+i+'" style="flex:1;margin:0;">'+escapeHtml(lab)+'</label>' +
+              '<input id="f-cod-'+li+'-'+i+'" data-cod-loja="'+escapeHtml(loja)+'" data-cod-lab="'+escapeHtml(lab)+'" type="text" value="'+escapeHtml((cods[loja] || {})[lab] || '')+'" placeholder="código (ex: 6772)" style="flex:1;"></div>';
+          }).join('') +
+        '</div>';
+      }).join('') +
+      (state.codigosErro ? '<div style="font-size:12px;color:var(--terracota-dark);font-weight:700;">'+escapeHtml(state.codigosErro)+'</div>' : '') +
+      '<div style="display:flex;gap:10px;margin-top:6px;">' +
+        '<button id="cancelar-codigos" class="btn btn-outline" style="flex:1;">Fechar</button>' +
+        '<button id="salvar-codigos" class="btn btn-primary" style="flex:1;" '+(state.saving?'disabled':'')+'>'+(state.saving?'Salvando…':'Salvar códigos')+'</button>' +
+      '</div>' +
+    '</div></div>';
+  }
+
+  // A tela é redesenhada inteira a cada mudança. Para não perder o que a pessoa está digitando,
+  // guardamos o valor de cada campo (e o foco/cursor) antes e devolvemos depois.
+  function render(){
+    renderPendente = false;
+    var campos = capturarCampos();
+    desenhar();
+    restaurarCampos(campos);
+  }
+
+  function capturarCampos(){
+    var app = document.getElementById('app');
+    var r = { valores: {}, foco: null, rolagem: {} };
+    app.querySelectorAll('input[id], select[id], textarea[id]').forEach(function(el){
+      if (el.type === 'file') return;
+      r.valores[el.id] = el.type === 'checkbox' ? { checked: el.checked } : { value: el.value };
+    });
+    var ativo = document.activeElement;
+    if (ativo && ativo.id && app.contains(ativo) && /^(INPUT|TEXTAREA|SELECT)$/.test(ativo.tagName)){
+      r.foco = { id: ativo.id };
+      try{ r.foco.ini = ativo.selectionStart; r.foco.fim = ativo.selectionEnd; } catch(e){}
+    }
+    ['imp-lista'].forEach(function(id){ var el = document.getElementById(id); if (el) r.rolagem[id] = el.scrollTop; });
+    var modal = app.querySelector('.modal'); if (modal) r.rolagemModal = modal.scrollTop;
+    return r;
+  }
+
+  function restaurarCampos(r){
+    Object.keys(r.valores).forEach(function(id){
+      var el = document.getElementById(id);
+      if (!el || el.type === 'file' || id === 'busca-os') return; // a busca vive em state.busca
+      var v = r.valores[id];
+      if ('checked' in v) el.checked = v.checked;
+      else if (el.value !== v.value) el.value = v.value;
+    });
+    if (r.foco){
+      var el = document.getElementById(r.foco.id);
+      if (el){
+        el.focus({ preventScroll: true });
+        try{ if (r.foco.ini != null) el.setSelectionRange(r.foco.ini, r.foco.fim); } catch(e){}
+      }
+    }
+    function aplicarRolagem(){
+      Object.keys(r.rolagem).forEach(function(id){ var el = document.getElementById(id); if (el) el.scrollTop = r.rolagem[id]; });
+      var modal = document.querySelector('#app .modal'); if (modal && r.rolagemModal != null) modal.scrollTop = r.rolagemModal;
+    }
+    aplicarRolagem();
+    setTimeout(aplicarRolagem, 20); // de novo depois do destaque das linhas sem nome, que muda a altura
+
+  }
+
+  // Atualizações que chegam do banco (outra loja salvou algo) esperam o clique terminar
+  // ou a lista de opções fechar, para não sumir com o botão debaixo do mouse.
+  var ponteiroPressionado = false, renderPendente = false;
+  function selectEmUso(){ var a = document.activeElement; return !!(a && a.tagName === 'SELECT'); }
+  function renderDoBanco(){
+    if (ponteiroPressionado || selectEmUso()){ renderPendente = true; return; }
+    render();
+  }
+  function descarregarRender(){
+    if (renderPendente && !ponteiroPressionado && !selectEmUso()) render();
+  }
+  document.addEventListener('pointerdown', function(){ ponteiroPressionado = true; }, true);
+  ['pointerup', 'pointercancel'].forEach(function(ev){
+    document.addEventListener(ev, function(){ ponteiroPressionado = false; setTimeout(descarregarRender, 80); }, true);
+  });
+  document.addEventListener('focusout', function(){ setTimeout(descarregarRender, 80); }, true);
+  document.addEventListener('change', function(){ setTimeout(descarregarRender, 80); }, true);
+
+  function desenhar(){
+    var app = document.getElementById('app');
+    if (!state.dbReady){
+      app.innerHTML = state.error
+        ? '<div style="padding:60px;text-align:center;"><div class="card" style="max-width:480px;margin:0 auto;">'+escapeHtml(state.error)+'</div></div>'
+        : 'Carregando…';
+      return;
+    }
+    if (!state.session){
+      app.innerHTML = avisoVersaoHtml() + viewLogin();
+      attachHandlers();
+      return;
+    }
+    var body = state.view === 'dashboard' ? viewDashboard()
+      : state.view === 'detalhe' ? viewDetalhe()
+      : (state.view === 'equipes' && state.session.role === 'admin') ? viewEquipes()
+      : state.view === 'destaque' ? viewDestaque()
+      : viewRelatorios();
+
+    var errorBanner = state.error ? '<div style="background:var(--terracota-tint);color:var(--terracota-dark);padding:10px 16px;border-radius:8px;font-size:13px;margin-bottom:12px;">'+escapeHtml(state.error)+' <button id="dismiss-error" style="font-weight:700;text-decoration:underline;">fechar</button></div>' : '';
+
+    app.innerHTML =
+      '<div style="min-height:100vh;display:flex;flex-direction:column;">' +
+        avisoVersaoHtml() + header() +
+        '<div style="flex:1;padding:28px 32px;">' + errorBanner + body + '</div>' +
+        '<div style="padding:0 32px 18px;font-size:11px;color:var(--ink-soft);opacity:0.75;">' + escapeHtml(MARCA.nome) + ' · Controle de Prazos · versão ' + VERSAO_APP + '</div>' +
+      '</div>' +
+      '<button id="fab-novo" class="fab">+ Novo Pedido</button>' +
+      (state.modal === 'novo' ? modalNovoPedido() : '') +
+      (state.modal === 'codigos' ? modalCodigos() : '') +
+      (state.modal === 'cobranca' && state.cobranca ? modalCobranca() : '') +
+      (state.modal === 'importarPdf' ? modalImportarPdf() : '');
+
+    attachHandlers();
+  }
+
+  function attachHandlers(){
+    var roleLoja = document.querySelector('[data-role="loja"]');
+    if (roleLoja) roleLoja.addEventListener('click', function(){ state.loginForm.role = 'loja'; state.loginError = null; render(); });
+    var roleAdmin = document.querySelector('[data-role="admin"]');
+    if (roleAdmin) roleAdmin.addEventListener('click', function(){ state.loginForm.role = 'admin'; state.loginError = null; render(); });
+    var loginLoja = document.getElementById('login-loja');
+    if (loginLoja) loginLoja.addEventListener('change', function(){ state.loginForm.loja = loginLoja.value; render(); });
+    var loginUsuario = document.getElementById('login-usuario');
+    if (loginUsuario) loginUsuario.addEventListener('input', function(){ state.loginForm.usuario = loginUsuario.value; });
+    var btnInstalar = document.getElementById('btn-instalar');
+    if (btnInstalar) btnInstalar.addEventListener('click', instalarApp);
+    var loginCodigo = document.getElementById('login-codigo');
+    if (loginCodigo) loginCodigo.addEventListener('input', function(){ state.loginForm.codigo = loginCodigo.value; });
+    if (loginCodigo) loginCodigo.addEventListener('keydown', function(e){
+      if (e.key === 'Enter' && !state.saving){ state.loginForm.codigo = loginCodigo.value; var lu = document.getElementById('login-usuario'); if (lu) state.loginForm.usuario = lu.value; tentarLogin(); }
+    });
+    var btnEntrar = document.getElementById('btn-entrar');
+    if (btnEntrar) btnEntrar.addEventListener('click', function(){ var lc = document.getElementById('login-codigo'); if (lc) state.loginForm.codigo = lc.value; var lu = document.getElementById('login-usuario'); if (lu) state.loginForm.usuario = lu.value; tentarLogin(); });
+    var btnSair = document.getElementById('btn-sair');
+    if (btnSair) btnSair.addEventListener('click', sair);
+
+    document.querySelectorAll('a[data-view]').forEach(function(el){
+      el.addEventListener('click', function(e){ e.preventDefault(); setView(el.getAttribute('data-view')); });
+    });
+    document.querySelectorAll('[data-periodo]').forEach(function(el){
+      el.addEventListener('click', function(){ state.equipesPeriodo = el.getAttribute('data-periodo'); render(); carregarAtividades(); });
+    });
+    document.querySelectorAll('[data-loja-filtro]').forEach(function(el){
+      el.addEventListener('click', function(){ state.adminLojaFiltro = el.getAttribute('data-loja-filtro'); render(); });
+    });
+    var buscaOs = document.getElementById('busca-os');
+    if (buscaOs){
+      buscaOs.addEventListener('input', function(){ state.busca = buscaOs.value; render(); });
+      buscaOs.addEventListener('keydown', function(e){
+        if (e.key === 'Escape'){ state.busca = ''; buscaOs.value = ''; render(); return; }
+        if (e.key === 'Enter'){
+          var achados = escopoPedidos().filter(function(p){ return pedidoBateBusca(p, buscaOs.value); });
+          if (buscaOs.value.trim() && achados.length === 1) setView('detalhe', achados[0].id);
+        }
+      });
+    }
+    var limparBusca = document.getElementById('limpar-busca');
+    if (limparBusca) limparBusca.addEventListener('click', function(){ state.busca = ''; render(); var b = document.getElementById('busca-os'); if (b) b.focus(); });
+    var adminLojaFiltro = document.getElementById('admin-loja-filtro');
+    if (adminLojaFiltro) adminLojaFiltro.addEventListener('change', function(){ state.adminLojaFiltro = adminLojaFiltro.value; render(); });
+
+    var fab = document.getElementById('fab-novo');
+    if (fab) fab.addEventListener('click', function(){
+      state.modal = 'novo';
+      state.novoForm = { loja: state.session.role === 'admin' ? (state.adminLojaFiltro !== 'todas' ? state.adminLojaFiltro : LOJAS[0]) : state.session.loja };
+      render();
+    });
+
+    var importPdf = document.getElementById('import-pdf');
+    if (importPdf) importPdf.addEventListener('change', function(){
+      if (importPdf.files && importPdf.files.length){ processarPdf(importPdf.files[0]); importPdf.value = ''; }
+    });
+    document.querySelectorAll('[data-filter]').forEach(function(el){
+      el.addEventListener('click', function(){ state.filter = el.getAttribute('data-filter'); state.busca = ''; render(); });
+    });
+    document.querySelectorAll('[data-open]').forEach(function(el){
+      el.addEventListener('click', function(e){
+        if (e.target.closest('a')) return; // clique no "Avisar WhatsApp" não abre o pedido
+        setView('detalhe', el.getAttribute('data-open'));
+      });
+    });
+    document.querySelectorAll('[data-act]').forEach(function(el){
+      el.addEventListener('click', function(){
+        var act = el.getAttribute('data-act');
+        if (act === 'mesmo') marcarMesmoPrazo(state.selectedId);
+        else if (act === 'entregar') marcarEntregue(state.selectedId);
+        else { state.contatoAction = 'novo'; render(); }
+      });
+    });
+    var salvarNovoPrazo = document.getElementById('salvar-novo-prazo');
+    if (salvarNovoPrazo) salvarNovoPrazo.addEventListener('click', function(){
+      var novaData = document.getElementById('nova-data').value;
+      var obs = document.getElementById('obs').value;
+      marcarNovoPrazo(state.selectedId, { novaData: novaData, observacao: obs });
+    });
+    document.querySelectorAll('[data-entregar]').forEach(function(el){
+      el.addEventListener('click', function(){ marcarEntregue(el.getAttribute('data-entregar')); });
+    });
+    document.querySelectorAll('[data-item-toggle]').forEach(function(el){
+      el.addEventListener('click', function(){
+        var idx = parseInt(el.getAttribute('data-item-toggle'), 10);
+        var p = pedidosCache.find(function(x){ return x.id === state.selectedId; });
+        var itemAtual = p ? itensDoPedido(p)[idx] : null;
+        marcarItemEntregue(state.selectedId, idx, itemAtual ? !itemAtual.entregue : true);
+      });
+    });
+
+    // ---- Área em Destaque: contato / novo prazo ----
+    document.querySelectorAll('[data-abrir-contato]').forEach(function(el){
+      el.addEventListener('click', function(){ state.destaqueAction = { id: el.getAttribute('data-abrir-contato'), tipo: 'contato' }; render(); });
+    });
+    document.querySelectorAll('[data-abrir-prazo]').forEach(function(el){
+      el.addEventListener('click', function(){ state.destaqueAction = { id: el.getAttribute('data-abrir-prazo'), tipo: 'prazo' }; render(); });
+    });
+    document.querySelectorAll('[data-cancelar-destaque]').forEach(function(el){
+      el.addEventListener('click', function(){ state.destaqueAction = null; render(); });
+    });
+    document.querySelectorAll('[data-salvar-contato]').forEach(function(el){
+      el.addEventListener('click', function(){
+        var id = el.getAttribute('data-salvar-contato');
+        var obsEl = document.getElementById('destaque-obs-'+id);
+        marcarContatoHoje(id, obsEl ? obsEl.value.trim() : '');
+      });
+    });
+    document.querySelectorAll('[data-salvar-prazo]').forEach(function(el){
+      el.addEventListener('click', function(){
+        var id = el.getAttribute('data-salvar-prazo');
+        var dataEl = document.getElementById('destaque-data-'+id);
+        var obsEl = document.getElementById('destaque-obs2-'+id);
+        if (!dataEl || !dataEl.value) return;
+        marcarNovoPrazo(id, { novaData: dataEl.value, observacao: obsEl ? obsEl.value.trim() : '' });
+      });
+    });
+
+    // ---- Admin: editar / excluir pedido ----
+    var btnEditarPedido = document.getElementById('btn-editar-pedido');
+    if (btnEditarPedido) btnEditarPedido.addEventListener('click', function(){ state.modoEdicao = true; render(); });
+    var cancelarEdicao = document.getElementById('cancelar-edicao');
+    if (cancelarEdicao) cancelarEdicao.addEventListener('click', function(){ state.modoEdicao = false; render(); });
+    var salvarEdicao = document.getElementById('salvar-edicao');
+    if (salvarEdicao) salvarEdicao.addEventListener('click', function(){
+      editarPedido(state.selectedId, {
+        cliente: document.getElementById('edit-cliente').value.trim(),
+        numeroOS: document.getElementById('edit-os').value.trim(),
+        laboratorio: document.getElementById('edit-lab').value,
+        dataPedido: document.getElementById('edit-data').value,
+        previsaoOriginal: document.getElementById('edit-previsao').value
+      });
+    });
+    var btnExcluirPedido = document.getElementById('btn-excluir-pedido');
+    if (btnExcluirPedido) btnExcluirPedido.addEventListener('click', function(){ state.confirmarExclusao = true; render(); });
+    var cancelarExclusao = document.getElementById('cancelar-exclusao');
+    if (cancelarExclusao) cancelarExclusao.addEventListener('click', function(){ state.confirmarExclusao = false; render(); });
+    var confirmarExclusao = document.getElementById('confirmar-exclusao');
+    if (confirmarExclusao) confirmarExclusao.addEventListener('click', function(){ if (!state.saving) excluirPedido(state.selectedId); });
+
+    var cancelarNovo = document.getElementById('cancelar-novo');
+    if (cancelarNovo) cancelarNovo.addEventListener('click', function(){ state.modal = null; state.novoForm = {}; render(); });
+    function sincronizarNovoForm(){
+      var clienteEl = document.getElementById('f-cliente'), osEl = document.getElementById('f-os'), qtdEl = document.getElementById('f-qtd'),
+          lojaEl = document.getElementById('f-loja'), labEl = document.getElementById('f-lab'), dataEl = document.getElementById('f-data'),
+          tipoEl = document.getElementById('f-tipo');
+      if (clienteEl) state.novoForm.cliente = clienteEl.value;
+      if (osEl) state.novoForm.numeroOS = osEl.value;
+      if (qtdEl) state.novoForm.quantidade = qtdEl.value;
+      if (lojaEl) state.novoForm.loja = lojaEl.value;
+      if (labEl) state.novoForm.laboratorio = labEl.value;
+      if (dataEl) state.novoForm.dataPedido = dataEl.value;
+      if (tipoEl) state.novoForm.tipo = tipoEl.value;
+      var prazoDiasEl = document.getElementById('f-prazo-dias');
+      if (prazoDiasEl) state.novoForm.prazoDias = prazoDiasEl.value;
+    }
+    var fTipo = document.getElementById('f-tipo');
+    if (fTipo) fTipo.addEventListener('change', function(){ sincronizarNovoForm(); render(); });
+    var fOs = document.getElementById('f-os');
+    if (fOs) fOs.addEventListener('change', function(){ sincronizarNovoForm(); render(); });
+    var fQtd = document.getElementById('f-qtd');
+    if (fQtd) fQtd.addEventListener('change', function(){ sincronizarNovoForm(); render(); });
+    var salvarNovo = document.getElementById('salvar-novo');
+    if (salvarNovo) salvarNovo.addEventListener('click', function(){
+      sincronizarNovoForm();
+      var lojaEl = document.getElementById('f-loja');
+      var prazoEl = document.getElementById('f-prazo-dias');
+      var qtdEl = document.getElementById('f-qtd');
+      criarPedido({
+        cliente: document.getElementById('f-cliente').value.trim(),
+        numeroOS: document.getElementById('f-os').value.trim(),
+        quantidade: qtdEl ? qtdEl.value : 1,
+        tipo: document.getElementById('f-tipo').value,
+        loja: lojaEl ? lojaEl.value : state.session.loja,
+        laboratorio: document.getElementById('f-lab').value,
+        dataPedido: document.getElementById('f-data').value,
+        prazoDias: prazoEl ? prazoEl.value : null
+      });
+    });
+
+    // ---- Modal de importação de PDF ----
+    function sincronizarCandidatosPdf(){
+      state.pdfCandidatos.forEach(function(c, i){
+        var incl = document.getElementById('imp-incluir-'+i), cli = document.getElementById('imp-cliente-'+i),
+            loja = document.getElementById('imp-loja-'+i), tipo = document.getElementById('imp-tipo-'+i),
+            prazo = document.getElementById('imp-prazo-'+i), qtd = document.getElementById('imp-qtd-'+i);
+        if (incl) c.incluir = incl.checked;
+        if (cli) c.cliente = cli.value;
+        if (loja) c.loja = loja.value;
+        if (tipo) c.tipo = tipo.value;
+        if (prazo) c.prazoDias = prazo.value;
+        if (qtd) c.quantidade = qtd.value;
+      });
+      (state.pdfCorrecoes || []).forEach(function(c, i){
+        var incl = document.getElementById('cor-incluir-'+i), cli = document.getElementById('cor-cliente-'+i);
+        if (incl) c.incluir = incl.checked;
+        if (cli) c.cliente = cli.value.trim();
+      });
+    }
+    document.querySelectorAll('.imp-tipo-select').forEach(function(sel){
+      sel.addEventListener('change', function(){
+        sincronizarCandidatosPdf();
+        state.pdfCandidatos[parseInt(sel.getAttribute('data-idx'), 10)].tipo = sel.value;
+        render();
+      });
+    });
+    document.querySelectorAll('.imp-qtd-input').forEach(function(inp){
+      inp.addEventListener('change', function(){
+        sincronizarCandidatosPdf();
+        state.pdfCandidatos[parseInt(inp.getAttribute('data-idx'), 10)].quantidade = inp.value;
+        render();
+      });
+    });
+    // Nenhum pedido entra sem nome do cliente: linha selecionada sem nome fica vermelha
+    // e o botão de salvar trava. Roda a cada tecla, sem redesenhar a tela.
+    function validarImportacao(){
+      var botao = document.getElementById('salvar-importados');
+      if (!botao) return;
+      var invalidas = 0;
+      document.querySelectorAll('#imp-lista .imp-linha').forEach(function(linha){
+        var pref = linha.id.indexOf('cor-') === 0 ? 'cor' : 'imp';
+        var i = linha.id.split('-').pop();
+        var incl = document.getElementById(pref + '-incluir-' + i);
+        var cli = document.getElementById(pref + '-cliente-' + i);
+        var ruim = !!(incl && incl.checked && cli && clienteSemNome(cli.value.trim()));
+        linha.classList.toggle('invalida', ruim);
+        if (ruim) invalidas++;
+      });
+      botao.disabled = state.saving || invalidas > 0;
+      botao.style.opacity = botao.disabled ? '0.5' : '';
+      botao.style.cursor = botao.disabled ? 'not-allowed' : '';
+      var aviso = document.getElementById('imp-aviso');
+      if (aviso) aviso.textContent = invalidas
+        ? (invalidas === 1 ? '1 linha selecionada está' : invalidas + ' linhas selecionadas estão') + ' sem nome do cliente (em vermelho). Preencha o nome ou desmarque a linha para poder salvar.'
+        : '';
+    }
+    document.querySelectorAll('#imp-lista input[id^="imp-cliente-"], #imp-lista input[id^="cor-cliente-"]').forEach(function(el){
+      el.addEventListener('input', validarImportacao);
+    });
+    document.querySelectorAll('#imp-lista input[id^="imp-incluir-"], #imp-lista input[id^="cor-incluir-"]').forEach(function(el){
+      el.addEventListener('change', validarImportacao);
+    });
+    if (document.getElementById('imp-lista')) setTimeout(validarImportacao, 0);
+
+    var cancelarImportar = document.getElementById('cancelar-importar');
+    if (cancelarImportar) cancelarImportar.addEventListener('click', function(){ state.modal = null; state.pdfCandidatos = []; state.pdfCorrecoes = []; state.importErro = null; render(); });
+    var salvarImportadosBtn = document.getElementById('salvar-importados');
+    if (salvarImportadosBtn) salvarImportadosBtn.addEventListener('click', function(){
+      sincronizarCandidatosPdf();
+      salvarImportados(state.pdfCandidatos);
+    });
+
+    // ---- Cobrança em lote ----
+    var btnCobrarLabs = document.getElementById('btn-cobrar-labs');
+    if (btnCobrarLabs) btnCobrarLabs.addEventListener('click', abrirCobranca);
+    var fecharCobranca = document.getElementById('fechar-cobranca');
+    if (fecharCobranca) fecharCobranca.addEventListener('click', function(){ state.modal = null; state.cobranca = null; render(); });
+    document.querySelectorAll('[data-cob-sel]').forEach(function(el){
+      el.addEventListener('change', function(){
+        state.cobranca.sel[el.getAttribute('data-cob-sel')] = el.checked;
+        state.cobranca.copiado = {}; // a mensagem mudou: precisa copiar de novo
+        render();
+      });
+    });
+    document.querySelectorAll('[data-cob-copiar]').forEach(function(el){
+      el.addEventListener('click', function(){
+        var chave = el.getAttribute('data-cob-copiar');
+        var g = gruposCobranca(escopoPedidos(), todayStr()).filter(function(x){ return x.chave === chave; })[0];
+        if (!g) return;
+        copiarTexto(mensagemLote(g, itensSelecionados(g))).then(function(){
+          state.cobranca.copiado[chave] = true; render();
+        }).catch(function(){
+          var ta = el.closest('div').parentNode.querySelector('textarea.cob-msg');
+          if (ta){ ta.focus(); ta.select(); }
+          window.alert('O navegador não deixou copiar sozinho. A mensagem ficou selecionada: aperte Ctrl+C para copiar.');
+        });
+      });
+    });
+    document.querySelectorAll('[data-cob-marcar]').forEach(function(el){
+      el.addEventListener('click', function(){ marcarCobradosHoje(el.getAttribute('data-cob-marcar')); });
+    });
+
+    var btnAtualizarApp = document.getElementById('btn-atualizar-app');
+    if (btnAtualizarApp) btnAtualizarApp.addEventListener('click', function(){ location.reload(); });
+    var btnCodigos = document.getElementById('btn-codigos');
+    if (btnCodigos) btnCodigos.addEventListener('click', function(){ state.modal = 'codigos'; state.codigosErro = null; render(); });
+    var cancelarCodigos = document.getElementById('cancelar-codigos');
+    if (cancelarCodigos) cancelarCodigos.addEventListener('click', function(){ state.modal = null; state.codigosErro = null; render(); });
+    var salvarCodigos = document.getElementById('salvar-codigos');
+    if (salvarCodigos) salvarCodigos.addEventListener('click', function(){
+      var cods = {};
+      document.querySelectorAll('[data-cod-loja]').forEach(function(el){
+        var loja = el.getAttribute('data-cod-loja');
+        // loja só grava os próprios códigos
+        if (state.session.role !== 'admin' && loja !== state.session.loja) return;
+        (cods[loja] = cods[loja] || {})[el.getAttribute('data-cod-lab')] = el.value.trim();
+      });
+      salvarCodigosLabs(cods);
+    });
+
+    var dismiss = document.getElementById('dismiss-error');
+    if (dismiss) dismiss.addEventListener('click', function(){ state.error = null; render(); });
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>
