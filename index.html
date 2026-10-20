@@ -163,7 +163,7 @@ function novoIdPedido(){
   var LOJAS = LOJAS_TODAS.slice();
   function lojaPorNome(nome){ return MARCA.lojas.filter(function(l){ return l.nome === nome; })[0] || null; }
   function lojaPorSlug(slug){ return MARCA.lojas.filter(function(l){ return l.slug === slug; })[0] || null; }
-  var LABORATORIOS_FIXOS = ['Orgalent - Essilor', 'Hoya', 'Zeiss', 'Rodenstock', 'Visco', 'Imperiallab', 'Digilab', 'Jefferson (serviços menores)'];
+  var LABORATORIOS_FIXOS = ['Orgalent - Essilor', 'Hoya', 'Zeiss', 'Rodenstock', 'Visco', 'Imperiallab', 'Digilab', 'Niteroilab', 'Masterlab', 'Jefferson (serviços menores)'];
 
   function escopoPedidos(){
     if (!state.session) return [];
@@ -669,6 +669,8 @@ function novoIdPedido(){
     { re: /rodenstock/i, lab: 'Rodenstock' },
     { re: /visco/i, lab: 'Visco' },
     { re: /digilab/i, lab: 'Digilab' },
+    { re: /niter[oó]i\s*lab/i, lab: 'Niteroilab' },
+    { re: /master\s*lab/i, lab: 'Masterlab' },
     { re: /orgalent/i, lab: 'Orgalent - Essilor' },
     { re: /jefferson/i, lab: 'Jefferson (serviços menores)' }
   ];
