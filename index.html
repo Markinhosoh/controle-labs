@@ -33,6 +33,8 @@
   .chip-urgente,.chip-destaque{background:var(--terracota-tint);color:var(--terracota-dark);}
   .chip-atrasado{background:var(--terracota-dark);color:#fff;}
   .chip-cobrado{background:var(--green-tint);color:var(--green-dark);font-size:11px;padding:2px 8px;border-radius:999px;font-weight:700;white-space:nowrap;}
+  .chip-avisar{background:var(--amber-tint);color:var(--amber-dark);font-size:11px;padding:2px 8px;border-radius:999px;font-weight:700;white-space:nowrap;}
+  .badge-aviso{background:var(--terracota);color:#fff;border-radius:999px;padding:1px 7px;font-size:11px;font-weight:800;margin-left:6px;}
   .chip-entregue{background:#E6E9EF;color:var(--ink-soft);}
   nav a{padding:8px 14px;border-radius:8px;font-weight:600;font-size:13px;opacity:0.85;text-decoration:none;}
   nav a.active{background:rgba(255,255,255,0.18);font-weight:700;opacity:1;}
@@ -63,7 +65,7 @@ import {
 // se ela falhar num computador, o resto do app continua funcionando.
 
 // Versão visível no app (login e rodapé) — ajuda a saber, por um print, qual versão a loja está usando
-const VERSAO_APP = '2026-10-20';
+const VERSAO_APP = '2026-10-23';
 // Desde quando o app registra as atividades das lojas (antes disso, a aba Equipes usa só o que está nos pedidos)
 const INICIO_REGISTRO = '2026-10-20';
 
@@ -148,6 +150,7 @@ function novoIdPedido(){
     contatoAction: null,
     destaqueAction: null,
     destaqueForm: {},
+    avisoAction: null,
     modoEdicao: false,
     pdfProcessando: false,
     pdfError: null,
@@ -503,6 +506,7 @@ function novoIdPedido(){
       var patch = { itens: itens, quantidade: itens.length };
       if (todosEntregues){
         patch.entregue = true; patch.dataEntrega = todayStr(); patch.areaDestaque = false;
+        if (!p.entregue) patch.aviso = avisoChegou(p); // chegou: o cliente precisa saber que já pode retirar
       } else if (p.entregue) {
         patch.entregue = false; patch.dataEntrega = null;
       }
@@ -525,11 +529,16 @@ function novoIdPedido(){
     if (!form.novaData) return;
     state.saving = true; render();
     try{
-      await gravar(doc(fs, 'pedidos', id), {
+      var pAntes = pedidosCache.find(function(x){ return x.id === id; });
+      var avisoNovo = pAntes ? avisoAposNovoPrazo(pAntes, form.novaData) : null;
+      var patchPrazo = {
         contato: { tipo: 'novo', novaPrevisao: form.novaData, observacao: form.observacao || '', registradoEm: todayStr() },
         areaDestaque: true
-      }, { merge: true });
-      registrarAtividade('contato_novo', pedidosCache.find(function(x){ return x.id === id; }), { novaPrevisao: form.novaData });
+      };
+      if (avisoNovo) patchPrazo.aviso = avisoNovo; // a loja agora precisa avisar o cliente da nova data
+      await gravar(doc(fs, 'pedidos', id), patchPrazo, { merge: true });
+      registrarAtividade('contato_novo', pAntes, { novaPrevisao: form.novaData });
+      if (avisoNovo && avisoNovo.pendente) registrarAtividade('aviso_pendente', pAntes, { tipoAviso: 'prazo' });
       state.contatoAction = null; state.contatoForm = {};
     } catch(e){ state.error = e.message; }
     state.saving = false; render();
@@ -542,7 +551,9 @@ function novoIdPedido(){
     try{
       var hoje = todayStr();
       var itens = itensDoPedido(p).map(function(it){ return Object.assign({}, it, { entregue: true, dataEntrega: it.dataEntrega || hoje }); });
-      await gravar(doc(fs, 'pedidos', id), { entregue: true, dataEntrega: hoje, areaDestaque: false, itens: itens, quantidade: itens.length }, { merge: true });
+      var patchEntrega = { entregue: true, dataEntrega: hoje, areaDestaque: false, itens: itens, quantidade: itens.length };
+      if (!p.entregue) patchEntrega.aviso = avisoChegou(p); // chegou: o cliente precisa saber que já pode retirar
+      await gravar(doc(fs, 'pedidos', id), patchEntrega, { merge: true });
       registrarAtividade('chegou', p);
     } catch(e){ state.error = e.message; }
     state.saving = false; render();
@@ -985,15 +996,17 @@ function novoIdPedido(){
 
   // ---------- render ----------
   function setView(v, id){
-    state.view = v; state.selectedId = id || null; state.modoEdicao = false; state.confirmarExclusao = false; state.contatoAction = null; state.destaqueAction = null; render();
+    state.view = v; state.selectedId = id || null; state.modoEdicao = false; state.confirmarExclusao = false; state.contatoAction = null; state.destaqueAction = null; state.avisoAction = null; render();
     if (v === 'equipes') carregarAtividades();
   }
 
   function header(){
-    var tabs = [['dashboard','Pedidos'],['destaque','Área em Destaque'],['relatorios','Relatórios']];
+    var tabs = [['dashboard','Pedidos'],['destaque','Área em Destaque'],['avisos','Avisar clientes'],['relatorios','Relatórios']];
     if (state.session.role === 'admin') tabs.push(['equipes', 'Equipes']);
+    var nAvisos = pedidosParaAvisar(escopoPedidos(), todayStr()).length;
     var navHtml = tabs.map(function(t){
-      return '<a href="#" data-view="'+t[0]+'" class="'+(state.view===t[0]?'active':'')+'">'+t[1]+'</a>';
+      var badge = (t[0] === 'avisos' && nAvisos) ? '<span class="badge-aviso">'+nAvisos+'</span>' : '';
+      return '<a href="#" data-view="'+t[0]+'" class="'+(state.view===t[0]?'active':'')+'">'+t[1]+badge+'</a>';
     }).join('');
     var quemEsta = state.session.role === 'admin' ? 'Admin · todas as lojas' : ('Loja ' + state.session.loja);
     return '' +
@@ -1177,6 +1190,218 @@ function novoIdPedido(){
   }
   // ==== COBRANCA-FIM ====
 
+  // ==== AVISO-CLIENTE-INICIO ====
+  // Aviso ao cliente. Toda novidade que o cliente precisa saber (novo prazo do laboratório, óculos que
+  // chegou, novidade registrada à mão) deixa o pedido "pendente de aviso" até alguém confirmar que avisou.
+  // Fica em pedido.aviso = { pendente, tipo: 'prazo'|'chegou'|'info', motivo, desde, prazo, prazoPrometido, historico: [] }
+  //   prazoPrometido = a data que o cliente acredita ser a de entrega (a última que a loja contou a ele).
+  var CANAIS_AVISO = [['whatsapp', 'WhatsApp'], ['ligacao', 'Ligação'], ['pessoalmente', 'Pessoalmente'], ['dispensado', 'Cliente já sabe / já retirou']];
+  function nomeCanal(c){ var x = CANAIS_AVISO.filter(function(o){ return o[0] === c; })[0]; return x ? x[1] : (c || ''); }
+  function horaAgora(){ return new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' }).format(new Date()); }
+  function prazoVigente(p){ return (p.areaDestaque && p.contato && dataValida(p.contato.novaPrevisao)) ? p.contato.novaPrevisao : p.previsaoOriginal; }
+
+  // Aviso pendente de um pedido (ou null). Pedido que já estava na Área em Destaque antes deste recurso,
+  // sem nenhum registro de aviso, aparece como pendente: a loja confirma se o cliente já foi avisado.
+  function avisoEfetivo(p){
+    if (p.aviso) return p.aviso.pendente ? p.aviso : null;
+    if (p.areaDestaque && !p.entregue && p.contato && p.contato.tipo === 'novo' && dataValida(p.contato.novaPrevisao)){
+      return { pendente: true, tipo: 'prazo', legado: true, motivo: 'Novo prazo registrado antes: confirme se o cliente já foi avisado',
+        desde: dataValida(p.contato.registradoEm) ? p.contato.registradoEm : todayStr(), prazo: p.contato.novaPrevisao, prazoPrometido: p.previsaoOriginal || null };
+    }
+    return null;
+  }
+  // 'hoje' = a data que o cliente tem em mente é hoje ou já passou; 'amanha' = é no próximo dia útil.
+  function riscoAviso(a, hoje){
+    if (!a || a.tipo === 'chegou' || !dataValida(a.prazoPrometido)) return null;
+    if (hoje >= a.prazoPrometido) return 'hoje';
+    return businessDaysBetween(hoje, a.prazoPrometido) <= 1 ? 'amanha' : null;
+  }
+  function pedidosParaAvisar(pedidos, hoje){
+    var lista = [];
+    pedidos.forEach(function(p){
+      var a = avisoEfetivo(p);
+      if (!a) return;
+      lista.push({ p: p, a: a, risco: riscoAviso(a, hoje), dias: Math.max(0, businessDaysBetween(a.desde, hoje)) });
+    });
+    var peso = { hoje: 0, amanha: 1 };
+    lista.sort(function(x, y){
+      var rx = x.risco ? peso[x.risco] : 2, ry = y.risco ? peso[y.risco] : 2;
+      return rx - ry || y.dias - x.dias || String(x.p.cliente).localeCompare(String(y.p.cliente));
+    });
+    return lista;
+  }
+  function avisoAposNovoPrazo(p, novaData){
+    var atual = p.aviso || avisoEfetivo(p) || {};
+    var prometido = dataValida(atual.prazoPrometido) ? atual.prazoPrometido : (prazoVigente(p) || null);
+    var historico = (p.aviso && p.aviso.historico) || [];
+    if (novaData === prometido) return { pendente: false, tipo: 'prazo', motivo: '', desde: null, prazo: novaData, prazoPrometido: prometido, historico: historico }; // o cliente já sabe essa data
+    return { pendente: true, tipo: 'prazo', motivo: 'Novo prazo do laboratório: ' + fmtDataCompleta(novaData),
+      desde: (atual.pendente && atual.tipo === 'prazo' && dataValida(atual.desde)) ? atual.desde : todayStr(),
+      prazo: novaData, prazoPrometido: prometido, historico: historico };
+  }
+  function avisoChegou(p){
+    var atual = p.aviso || {};
+    return { pendente: true, tipo: 'chegou', motivo: 'Chegou na loja: avise o cliente para retirar', desde: todayStr(), prazo: null,
+      prazoPrometido: atual.prazoPrometido || null, historico: atual.historico || [] };
+  }
+  function primeiroNome(c){
+    var n = String(c || '').trim().split(/\s+/)[0] || '';
+    return n ? n.charAt(0).toUpperCase() + n.slice(1).toLowerCase() : '';
+  }
+  function mensagemCliente(p, a){
+    var oi = 'Olá' + (primeiroNome(p.cliente) ? ', ' + primeiroNome(p.cliente) : '') + '! Aqui é da ' + MARCA.nome + ' ' + p.loja + '.';
+    var os = p.numeroOS ? ' (OS ' + p.numeroOS + ')' : '';
+    if (a.tipo === 'chegou') return oi + ' Boas notícias: o seu óculos' + os + ' chegou! Pode vir retirar quando quiser.';
+    if (a.tipo === 'info') return oi + ' Sobre o seu óculos' + os + ': ' + String(a.motivo || '').replace(/[.\s]+$/, '') + '.';
+    return oi + ' Sobre o seu óculos' + os + ': o laboratório nos informou um novo prazo. A previsão de entrega agora é ' + fmtDataCompleta(a.prazo) +
+      '. Pedimos desculpas pelo ajuste e avisamos assim que ele chegar. Qualquer dúvida, é só falar!';
+  }
+
+  async function confirmarAviso(id, canal, obs){
+    var p = pedidosCache.find(function(x){ return x.id === id; });
+    var a = p ? avisoEfetivo(p) : null;
+    if (!p || !a) return;
+    var hoje = todayStr();
+    var tipo = a.tipo || 'prazo';
+    var historico = ((p.aviso && p.aviso.historico) || []).concat([{ em: hoje, hora: horaAgora(), canal: canal, obs: obs || '', tipo: tipo, motivo: a.motivo || '', prazo: a.prazo || null, desde: a.desde || hoje }]);
+    var aviso = { pendente: false, tipo: tipo, motivo: '', desde: null, prazo: a.prazo || null,
+      prazoPrometido: tipo === 'chegou' ? (a.prazoPrometido || null) : (a.prazo || a.prazoPrometido || null), historico: historico };
+    state.saving = true; render();
+    try{
+      await gravar(doc(fs, 'pedidos', id), { aviso: aviso }, { merge: true });
+      registrarAtividade('cliente_avisado', p, { canal: canal, tipoAviso: tipo, diasParaAvisar: Math.max(0, businessDaysBetween(a.desde, hoje)) });
+      state.avisoAction = null;
+    } catch(e){ state.error = e.message; }
+    state.saving = false; render();
+  }
+
+  async function registrarNovidade(id, texto){
+    var p = pedidosCache.find(function(x){ return x.id === id; });
+    if (!p || !texto) return;
+    var atual = p.aviso || {};
+    var aviso = { pendente: true, tipo: 'info', motivo: texto, desde: todayStr(), prazo: null,
+      prazoPrometido: dataValida(atual.prazoPrometido) ? atual.prazoPrometido : (prazoVigente(p) || null), historico: atual.historico || [] };
+    state.saving = true; render();
+    try{
+      await gravar(doc(fs, 'pedidos', id), { aviso: aviso }, { merge: true });
+      registrarAtividade('aviso_pendente', p, { tipoAviso: 'info' });
+      state.avisoAction = null;
+    } catch(e){ state.error = e.message; }
+    state.saving = false; render();
+  }
+
+  // Cartão de um aviso pendente (usado na aba "Avisar clientes" e no detalhe do pedido).
+  function cartaoAviso(x, noDetalhe){
+    var p = x.p, a = x.a;
+    var acao = state.avisoAction && state.avisoAction.id === p.id ? state.avisoAction.tipo : null;
+    var chipRisco = x.risco === 'hoje' ? '<span class="chip chip-atrasado">🚨 O cliente pode ir à loja hoje</span>'
+      : x.risco === 'amanha' ? '<span class="chip chip-urgente">⚠ Prazo que o cliente tem em mente: amanhã</span>' : '';
+    var antes = (a.tipo !== 'chegou' && dataValida(a.prazoPrometido)) ? fmtDataCompleta(a.prazoPrometido) : null;
+    var linhaPrazo = '';
+    if (a.tipo === 'prazo' && antes && dataValida(a.prazo)) linhaPrazo = '<div style="font-size:13px;margin-top:6px;">O cliente acredita que fica pronto em <b>' + antes + '</b>. A nova previsão é <b>' + fmtDataCompleta(a.prazo) + '</b>.</div>';
+    else if (antes) linhaPrazo = '<div style="font-size:13px;margin-top:6px;">Data que o cliente tem em mente: <b>' + antes + '</b>.</div>';
+    var pendHa = x.dias <= 0 ? 'desde hoje' : 'há ' + diasUteisTxt(x.dias) + ' (desde ' + fmtDate(a.desde) + ')';
+    var forms = '';
+    if (acao === 'avisado'){
+      forms = '<div style="display:flex;flex-direction:column;gap:10px;padding:14px;background:var(--bg);border-radius:10px;margin-top:10px;">' +
+        '<div><label>Como o cliente foi avisado?</label><select id="aviso-canal-' + p.id + '" style="width:100%;">' +
+          CANAIS_AVISO.map(function(o){ return '<option value="' + o[0] + '">' + o[1] + '</option>'; }).join('') + '</select></div>' +
+        '<div><label>Observação (opcional)</label><textarea id="aviso-obs-' + p.id + '" rows="2" placeholder="Ex.: falei com a esposa, ele vem sábado"></textarea></div>' +
+        '<div style="display:flex;gap:8px;">' +
+          '<button data-aviso-cancelar="1" class="btn btn-outline" style="flex:1;">Cancelar</button>' +
+          '<button data-aviso-confirmar="' + p.id + '" class="btn btn-primary" style="flex:1;" ' + (state.saving ? 'disabled' : '') + '>' + (state.saving ? 'Salvando…' : 'Confirmar aviso') + '</button>' +
+        '</div></div>';
+    }
+    return '<div class="card" style="border-color:' + (x.risco === 'hoje' ? 'var(--terracota-dark)' : x.risco ? 'var(--terracota)' : 'var(--amber-dark)') + ';' + (noDetalhe ? '' : 'margin-bottom:14px;') + '">' +
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">' +
+        '<div><div style="font-size:16px;font-weight:800;">📞 ' + escapeHtml(p.cliente) + (p.numeroOS ? ' · OS ' + escapeHtml(p.numeroOS) : '') + '</div>' +
+        '<div style="font-size:12px;color:var(--ink-soft);margin-top:2px;">' + escapeHtml(p.loja) + ' · Laboratório: ' + escapeHtml(p.laboratorio || '—') + '</div></div>' +
+        chipRisco +
+      '</div>' +
+      '<div style="font-size:14px;font-weight:700;margin-top:10px;">' + escapeHtml(a.motivo || 'Há novidade para o cliente') + '</div>' +
+      linhaPrazo +
+      '<div style="font-size:12px;color:var(--ink-soft);margin-top:4px;">Cliente sem aviso ' + pendHa + '.</div>' +
+      '<div style="margin-top:10px;"><label>Mensagem pronta (pode editar antes de copiar)</label>' +
+        '<textarea id="aviso-msg-' + p.id + '" rows="3" style="width:100%;font-size:13px;">' + escapeHtml(mensagemCliente(p, a)) + '</textarea></div>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">' +
+        '<button data-aviso-copiar="' + p.id + '" class="btn btn-outline">📋 Copiar mensagem</button>' +
+        (acao ? '' : '<button data-aviso-abrir="' + p.id + '" data-tipo="avisado" class="btn btn-terracota">✓ Cliente avisado</button>') +
+        (noDetalhe ? '' : '<button data-open="' + p.id + '" class="btn btn-outline">Abrir pedido</button>') +
+      '</div>' +
+      forms +
+    '</div>';
+  }
+
+  function historicoAvisosHtml(p){
+    var hist = ((p.aviso && p.aviso.historico) || []).slice().reverse().slice(0, 6);
+    if (!hist.length) return '';
+    return '<div style="display:flex;flex-direction:column;gap:6px;">' + hist.map(function(h){
+      return '<div style="font-size:12px;background:var(--bg);border-radius:8px;padding:8px 12px;"><b>' + fmtDate(h.em) + (h.hora ? ' ' + escapeHtml(h.hora) : '') + '</b> · cliente avisado por ' + escapeHtml(nomeCanal(h.canal)) +
+        (h.motivo ? ' · ' + escapeHtml(h.motivo) : '') + (h.obs ? ' · “' + escapeHtml(h.obs) + '”' : '') + '</div>';
+    }).join('') + '</div>';
+  }
+
+  // Cartão do detalhe do pedido: aviso pendente, ou "em dia" + histórico + botão para registrar novidade
+  function avisoDetalheHtml(p){
+    var hoje = todayStr();
+    var a = avisoEfetivo(p);
+    if (a) return '<div style="margin-top:16px;">' + cartaoAviso({ p: p, a: a, risco: riscoAviso(a, hoje), dias: Math.max(0, businessDaysBetween(a.desde, hoje)) }, true) + '</div>' +
+      (historicoAvisosHtml(p) ? '<div class="card" style="margin-top:12px;"><div style="font-size:13px;font-weight:800;margin-bottom:8px;">Avisos já feitos ao cliente</div>' + historicoAvisosHtml(p) + '</div>' : '');
+    var acao = state.avisoAction && state.avisoAction.id === p.id ? state.avisoAction.tipo : null;
+    var formNov = acao === 'novidade'
+      ? '<div style="display:flex;flex-direction:column;gap:10px;padding:14px;background:var(--bg);border-radius:10px;">' +
+          '<div><label>O que o cliente precisa saber?</label><textarea id="novidade-texto-' + p.id + '" rows="2" placeholder="Ex.: a lente veio com defeito e será refeita"></textarea></div>' +
+          '<div style="display:flex;gap:8px;"><button data-aviso-cancelar="1" class="btn btn-outline" style="flex:1;">Cancelar</button>' +
+          '<button data-novidade-salvar="' + p.id + '" class="btn btn-terracota" style="flex:1;" ' + (state.saving ? 'disabled' : '') + '>Deixar pendente de aviso</button></div></div>'
+      : '';
+    var hist = historicoAvisosHtml(p);
+    return '<div class="card" style="margin-top:16px;display:flex;flex-direction:column;gap:10px;">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">' +
+        '<div><div style="font-size:15px;font-weight:800;">Aviso ao cliente</div>' +
+        '<div style="font-size:12px;color:var(--green-dark);font-weight:700;margin-top:2px;">✓ Nenhuma novidade pendente: o cliente está em dia.</div></div>' +
+        (acao || p.entregue ? '' : '<button data-aviso-abrir="' + p.id + '" data-tipo="novidade" class="btn btn-outline">💬 Há novidade para o cliente</button>') +
+      '</div>' + formNov + hist + '</div>';
+  }
+
+  function viewAvisos(){
+    var hoje = todayStr();
+    var lista = pedidosParaAvisar(escopoPedidos(), hoje);
+    var risco = lista.filter(function(x){ return x.risco; }).length;
+    var topo = '<div style="margin-bottom:16px;display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap;"><div>' +
+      '<div style="font-size:20px;font-weight:800;">Avisar clientes</div>' +
+      '<div style="font-size:13px;color:var(--ink-soft);margin-top:4px;max-width:720px;">Quando o laboratório muda o prazo ou o óculos chega, o cliente precisa saber <b>antes</b> de ir à loja. Copie a mensagem, envie ao cliente e toque em “Cliente avisado”.</div></div>' + lojaBotoesHtml() + '</div>';
+    var resumo = lista.length
+      ? '<div style="padding:12px 16px;border-radius:12px;margin-bottom:14px;font-size:13px;font-weight:700;' + (risco ? 'background:var(--terracota-tint);color:var(--terracota-dark);border:1px solid var(--terracota);' : 'background:var(--amber-tint);color:var(--amber-dark);border:1px solid var(--border);') + '">' +
+          lista.length + (lista.length === 1 ? ' cliente sem aviso' : ' clientes sem aviso') +
+          (risco ? ' · ' + risco + (risco === 1 ? ' pode ir à loja hoje ou amanhã sem saber da mudança (aparece primeiro)' : ' podem ir à loja hoje ou amanhã sem saber da mudança (aparecem primeiro)') : '') + '</div>'
+      : '';
+    var corpo = lista.length ? lista.map(function(x){ return cartaoAviso(x, false); }).join('')
+      : '<div class="card" style="text-align:center;color:var(--green-dark);font-weight:700;">✓ Todos os clientes estão avisados. Ótimo trabalho!</div>';
+    return topo + resumo + corpo;
+  }
+
+  // Equipes (admin): como cada loja está avisando os clientes
+  function avisosEquipeHtml(atividades, hoje, per){
+    var linhas = LOJAS.map(function(loja){
+      var pend = pedidosParaAvisar(pedidosCache.filter(function(p){ return p.loja === loja; }), hoje);
+      var maisAntigo = pend.reduce(function(m, x){ return Math.max(m, x.dias); }, 0);
+      var comRisco = pend.filter(function(x){ return x.risco; }).length;
+      var feitos = (atividades || []).filter(function(a){ return a.tipo === 'cliente_avisado' && a.loja === loja && a.por === 'loja' && a.dia >= per.ini && a.dia <= per.fim; });
+      var rapidos = feitos.filter(function(a){ return (a.diasParaAvisar || 0) <= 1; }).length;
+      var soma = feitos.reduce(function(s, a){ return s + (a.diasParaAvisar || 0); }, 0);
+      return '<tr><td style="font-weight:700;">' + escapeHtml(loja) + '</td>' +
+        '<td style="' + (pend.length ? 'color:var(--terracota-dark);font-weight:700;' : 'color:var(--green-dark);font-weight:700;') + '">' + pend.length + (comRisco ? ' (' + comRisco + ' com risco)' : '') + '</td>' +
+        '<td>' + (pend.length ? diasUteisTxt(maisAntigo) : '—') + '</td>' +
+        '<td>' + feitos.length + '</td>' +
+        '<td>' + (feitos.length ? Math.round(rapidos / feitos.length * 100) + '%' : '—') + '</td>' +
+        '<td>' + (feitos.length ? (Math.round(soma / feitos.length * 10) / 10).toString().replace('.', ',') + ' dia(s) útil(eis)' : '—') + '</td></tr>';
+    }).join('');
+    return '<div class="card" style="padding:0;overflow:auto;margin-top:16px;">' +
+      '<div style="padding:14px 16px 4px;font-size:15px;font-weight:800;">Avisos aos clientes <span style="font-weight:400;font-size:12px;color:var(--ink-soft);">— clientes que precisam saber de novo prazo ou da chegada do óculos</span></div>' +
+      '<table><thead><tr><th>Loja</th><th>Sem aviso agora</th><th>Mais antigo</th><th>Avisos feitos no período</th><th>Avisados em até 1 dia útil</th><th>Tempo médio para avisar</th></tr></thead><tbody>' + linhas + '</tbody></table></div>';
+  }
+  // ==== AVISO-CLIENTE-FIM ====
+
   function viewDashboard(){
     var busca = (state.busca || '').trim();
     var rows = escopoPedidos().filter(function(p){ return busca ? pedidoBateBusca(p, busca) : !p.entregue; }).map(function(p){
@@ -1217,7 +1442,7 @@ function novoIdPedido(){
         '<td style="color:var(--ink-soft);">'+fmtDate(s.previsao)+(s.novoPrazo ? ' <span style="font-size:11px;">(novo prazo)</span>' : '')+'</td>' +
         '<td style="color:var(--ink-soft);">'+situacao+'</td>' +
         '<td><span class="chip '+statusChipClass(s.status)+'">'+statusLabel(s.status)+'</span></td>' +
-        '<td>'+(cobradoHoje ? '<span class="chip-cobrado">✓ cobrado hoje</span>' : '')+'</td>' +
+        '<td>'+(cobradoHoje ? '<span class="chip-cobrado">✓ cobrado hoje</span> ' : '')+(avisoEfetivo(p) ? '<span class="chip-avisar">📞 avisar cliente</span>' : '')+'</td>' +
       '</tr>';
     }).join('') : '<tr><td colspan="9" style="text-align:center;color:var(--ink-soft);padding:32px;">' +
       (busca
@@ -1262,10 +1487,24 @@ function novoIdPedido(){
         '</div>'
       : '';
 
+    // faixa "Clientes para avisar": pedidos com novidade (novo prazo, chegou) que o cliente ainda não recebeu
+    var paraAvisar = pedidosParaAvisar(escopoPedidos(), hojeLista);
+    var riscoAv = paraAvisar.filter(function(x){ return x.risco; }).length;
+    var faixaAviso = paraAvisar.length
+      ? '<div style="margin-top:12px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:12px 16px;border-radius:12px;' +
+          (riscoAv ? 'background:var(--terracota-tint);border:1px solid var(--terracota);' : 'background:var(--amber-tint);border:1px solid var(--border);') + '">' +
+          '<div style="font-size:13px;font-weight:700;color:' + (riscoAv ? 'var(--terracota-dark)' : 'var(--amber-dark)') + ';">' +
+            '📞 Clientes para avisar: ' + paraAvisar.length + (paraAvisar.length === 1 ? ' pedido' : ' pedidos') +
+            (riscoAv ? ' · ' + riscoAv + (riscoAv === 1 ? ' cliente pode ir à loja hoje ou amanhã sem saber da mudança' : ' clientes podem ir à loja hoje ou amanhã sem saber da mudança') : '') + '</div>' +
+          '<button id="btn-ver-avisos" class="btn ' + (riscoAv ? 'btn-terracota' : 'btn-outline') + '">Avisar clientes</button>' +
+        '</div>'
+      : '';
+
     return '' +
     importBlock +
     statRow() +
     faixaCobranca +
+    faixaAviso +
     (state.session.role === 'admin' ? '<div style="margin-top:20px;">'+lojaBotoesHtml()+'</div>' : '') +
     '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:'+(state.session.role === 'admin' ? 12 : 20)+'px;">' +
       '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">'+filterChips+'</div>' +
@@ -1274,7 +1513,7 @@ function novoIdPedido(){
     (busca ? '<div style="font-size:12px;color:var(--ink-soft);margin-top:8px;">'+rows.length+' resultado'+(rows.length === 1 ? '' : 's')+' para “'+escapeHtml(busca)+'” — inclui pedidos já entregues.'+(rows.length === 1 ? ' Aperte Enter para abrir.' : '')+'</div>' : '') +
     '<div class="card" style="padding:0;overflow:hidden;margin-top:16px;">' +
       '<table><thead><tr>' +
-        '<th>Cliente</th><th>Tipo</th><th>Loja</th><th>Laboratório</th><th>Pedido</th><th>Previsão</th><th>Situação</th><th>Status</th><th>Cobrança</th>' +
+        '<th>Cliente</th><th>Tipo</th><th>Loja</th><th>Laboratório</th><th>Pedido</th><th>Previsão</th><th>Situação</th><th>Status</th><th>Cobrança / Cliente</th>' +
       '</tr></thead><tbody>'+tableRows+'</tbody></table>' +
     '</div>';
   }
@@ -1342,6 +1581,7 @@ function novoIdPedido(){
       '</div>';
     }
 
+    var avisoPanel = avisoDetalheHtml(p);
     var qtdOculos = itensLista.length;
     var apagarPanel = state.confirmarExclusao
       ? '<div class="card" style="margin-top:16px;display:flex;flex-direction:column;gap:12px;background:var(--terracota-tint);border:2px solid var(--terracota-dark);">' +
@@ -1398,6 +1638,7 @@ function novoIdPedido(){
       '</div>' +
       '<div style="display:flex;align-items:center;padding-top:8px;">'+timelineHtml+'</div>' +
     '</div>' +
+    avisoPanel +
     itensPanel +
     actionPanel +
     adminPanel +
@@ -1887,7 +2128,7 @@ function novoIdPedido(){
       '</div>';
 
     var NOMES = [['acesso', 'Dias com uso'], ['importacao', 'Importações de PDF'], ['novo_pedido', 'Pedidos cadastrados à mão'], ['chegou', 'Óculos marcados “chegou”'],
-      ['cobranca_lote', 'Pedidos cobrados em lote'], ['contato_mesmo', 'Contato: mesmo prazo'], ['contato_novo', 'Contato: novo prazo'], ['contato_destaque', 'Contato na Área em Destaque'], ['whatsapp', 'Botão WhatsApp (antigo)'], ['exclusao', 'Lançamentos apagados']];
+      ['cobranca_lote', 'Pedidos cobrados em lote'], ['contato_mesmo', 'Contato: mesmo prazo'], ['contato_novo', 'Contato: novo prazo'], ['contato_destaque', 'Contato na Área em Destaque'], ['cliente_avisado', 'Clientes avisados'], ['whatsapp', 'Botão WhatsApp (antigo)'], ['exclusao', 'Lançamentos apagados']];
     var tabelaAtividades = '<div class="card" style="padding:0;overflow:auto;margin-top:16px;">' +
       '<div style="padding:14px 16px 4px;font-size:15px;font-weight:800;">Atividades registradas no período</div>' +
       '<table><thead><tr><th>Atividade</th>' + LOJAS.map(function(l){ return '<th>' + escapeHtml(l) + '</th>'; }).join('') + '</tr></thead><tbody>' +
@@ -1898,7 +2139,7 @@ function novoIdPedido(){
       '. Antes disso, o índice usa só o que já estava gravado nos pedidos (contatos registrados, cobranças da Área em Destaque e pedidos importados) — “Uso do app” não tem dados antes dessa data. ' +
       'Só contam ações feitas com o login da loja (o que o admin faz não entra). A cobrança em lote conta quando a loja clica em “Marcar como cobrados hoje” depois de enviar a mensagem ao laboratório.</div>';
 
-    return topo + quadroAberturas + '<div style="display:flex;gap:16px;flex-wrap:wrap;">' + cards + '</div>' + tabelaDeixados + tabelaAtividades + nota;
+    return topo + quadroAberturas + '<div style="display:flex;gap:16px;flex-wrap:wrap;">' + cards + '</div>' + tabelaDeixados + avisosEquipeHtml(eq.atividades, hoje, per) + tabelaAtividades + nota;
   }
 
   function modalNovoPedido(){
@@ -2218,6 +2459,7 @@ function novoIdPedido(){
       : state.view === 'detalhe' ? viewDetalhe()
       : (state.view === 'equipes' && state.session.role === 'admin') ? viewEquipes()
       : state.view === 'destaque' ? viewDestaque()
+      : state.view === 'avisos' ? viewAvisos()
       : viewRelatorios();
 
     var errorBanner = state.error ? '<div style="background:var(--terracota-tint);color:var(--terracota-dark);padding:10px 16px;border-radius:8px;font-size:13px;margin-bottom:12px;">'+escapeHtml(state.error)+' <button id="dismiss-error" style="font-weight:700;text-decoration:underline;">fechar</button></div>' : '';
@@ -2353,6 +2595,45 @@ function novoIdPedido(){
         var obsEl = document.getElementById('destaque-obs2-'+id);
         if (!dataEl || !dataEl.value) return;
         marcarNovoPrazo(id, { novaData: dataEl.value, observacao: obsEl ? obsEl.value.trim() : '' });
+      });
+    });
+
+    // ---- Avisar clientes ----
+    var btnVerAvisos = document.getElementById('btn-ver-avisos');
+    if (btnVerAvisos) btnVerAvisos.addEventListener('click', function(){ setView('avisos'); });
+    document.querySelectorAll('[data-aviso-copiar]').forEach(function(el){
+      el.addEventListener('click', function(){
+        var id = el.getAttribute('data-aviso-copiar');
+        var ta = document.getElementById('aviso-msg-' + id);
+        if (!ta) return;
+        copiarTexto(ta.value).then(function(){
+          el.textContent = '✓ Mensagem copiada';
+        }).catch(function(){
+          ta.focus(); ta.select();
+          window.alert('O navegador não deixou copiar sozinho. A mensagem ficou selecionada: aperte Ctrl+C para copiar.');
+        });
+      });
+    });
+    document.querySelectorAll('[data-aviso-abrir]').forEach(function(el){
+      el.addEventListener('click', function(){ state.avisoAction = { id: el.getAttribute('data-aviso-abrir'), tipo: el.getAttribute('data-tipo') }; render(); });
+    });
+    document.querySelectorAll('[data-aviso-cancelar]').forEach(function(el){
+      el.addEventListener('click', function(){ state.avisoAction = null; render(); });
+    });
+    document.querySelectorAll('[data-aviso-confirmar]').forEach(function(el){
+      el.addEventListener('click', function(){
+        var id = el.getAttribute('data-aviso-confirmar');
+        var canalEl = document.getElementById('aviso-canal-' + id);
+        var obsEl = document.getElementById('aviso-obs-' + id);
+        confirmarAviso(id, canalEl ? canalEl.value : 'whatsapp', obsEl ? obsEl.value.trim() : '');
+      });
+    });
+    document.querySelectorAll('[data-novidade-salvar]').forEach(function(el){
+      el.addEventListener('click', function(){
+        var id = el.getAttribute('data-novidade-salvar');
+        var txtEl = document.getElementById('novidade-texto-' + id);
+        if (!txtEl || !txtEl.value.trim()) return;
+        registrarNovidade(id, txtEl.value.trim());
       });
     });
 
