@@ -56,7 +56,7 @@
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
 import {
-  getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, query, where, getDocs
+  getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, query, where, getDocs, writeBatch, deleteField
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut
@@ -65,7 +65,7 @@ import {
 // se ela falhar num computador, o resto do app continua funcionando.
 
 // Versão visível no app (login e rodapé) — ajuda a saber, por um print, qual versão a loja está usando
-const VERSAO_APP = '2026-10-23';
+const VERSAO_APP = '2026-10-28';
 // Desde quando o app registra as atividades das lojas (antes disso, a aba Equipes usa só o que está nos pedidos)
 const INICIO_REGISTRO = '2026-10-20';
 
@@ -2071,6 +2071,158 @@ function novoIdPedido(){
     '</div>';
   }
 
+  // ==== ZERAR-LOJA-INICIO ====
+  // Só o admin. Apaga TODOS os pedidos de UMA loja (as outras não são tocadas), depois de baixar um backup
+  // e de digitar o nome da loja. Opcional: apaga também o histórico de atividades dessa loja.
+  function semAcentoMin(s){ return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim(); }
+  function zerarConfere(z){ return !!z && semAcentoMin(z.texto) === semAcentoMin(z.loja); }
+  function abrirZerarLoja(loja){
+    if (!state.session || state.session.role !== 'admin') return;
+    if (LOJAS_TODAS.indexOf(loja) < 0) return;
+    state.zerar = { loja: loja, texto: '', ativ: true, backupIds: null, busy: null, erro: null, feito: null, apagados: 0 };
+    state.modal = 'zerarLoja';
+    render();
+  }
+  function fecharZerarLoja(){
+    state.modal = null; state.zerar = null;
+    render();
+  }
+  async function buscarPedidosDaLoja(loja){
+    var snap = await comTempoLimite(getDocs(query(collection(fs, 'pedidos'), where('loja', '==', loja))), 30000, MSG_SEM_CONEXAO);
+    return snap.docs;
+  }
+  // apaga em lotes de 400 (o limite do Firestore é 500 por lote); devolve quantos foram apagados
+  async function apagarEmLotes(refs, z){
+    var feitos = 0;
+    for (var i = 0; i < refs.length; i += 400){
+      var lote = writeBatch(fs);
+      refs.slice(i, i + 400).forEach(function(r){ lote.delete(r); });
+      await comTempoLimite(lote.commit(), 30000, MSG_SEM_CONEXAO);
+      feitos += Math.min(400, refs.length - i);
+      if (z) z.apagados = (z.apagados || 0) + Math.min(400, refs.length - i);
+    }
+    return feitos;
+  }
+  async function baixarBackupLoja(){
+    var z = state.zerar;
+    if (!z || z.busy || !state.session || state.session.role !== 'admin') return;
+    z.busy = 'backup'; z.erro = null; render();
+    try{
+      var docs = await buscarPedidosDaLoja(z.loja);
+      var conteudo = {
+        app: 'Controle de Prazos', grupo: MARCA.nome, loja: z.loja, geradoEm: new Date().toISOString(), total: docs.length,
+        pedidos: docs.map(function(d){ return Object.assign({ id: d.id }, d.data()); })
+      };
+      var blob = new Blob([JSON.stringify(conteudo, null, 2)], { type: 'application/json' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url; a.download = 'backup-pedidos-' + lojaPorNome(z.loja).slug + '-' + todayStr() + '.json';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(function(){ URL.revokeObjectURL(url); }, 10000);
+      z.backupIds = docs.map(function(d){ return d.id; });
+    } catch(e){ z.erro = 'Não foi possível gerar o backup: ' + e.message; }
+    z.busy = null; render();
+  }
+  async function confirmarZerarLoja(){
+    var z = state.zerar;
+    if (!z || z.busy || !state.session || state.session.role !== 'admin') return;
+    if (!z.backupIds){ z.erro = 'Baixe o backup antes de apagar.'; render(); return; }
+    if (!zerarConfere(z)){ z.erro = 'O nome digitado não confere com o nome da loja.'; render(); return; }
+    z.busy = 'apagar'; z.erro = null; z.apagados = 0; render();
+    var res = { pedidos: 0, atividades: 0, atividadesErro: null };
+    try{
+      var docs = await buscarPedidosDaLoja(z.loja);
+      var noBackup = {}; z.backupIds.forEach(function(id){ noBackup[id] = 1; });
+      var novos = docs.filter(function(d){ return !noBackup[d.id]; }).length;
+      if (novos){
+        z.backupIds = null; z.busy = null;
+        z.erro = 'Chegaram ' + novos + ' pedido' + (novos === 1 ? '' : 's') + ' novo' + (novos === 1 ? '' : 's') + ' desde o backup. Nada foi apagado: baixe o backup de novo e confirme outra vez.';
+        render(); return;
+      }
+      res.pedidos = await apagarEmLotes(docs.map(function(d){ return d.ref; }), z);
+    } catch(e){
+      z.busy = null;
+      z.erro = 'Parou no meio: ' + (z.apagados || 0) + ' pedido' + (z.apagados === 1 ? '' : 's') + ' apagado' + (z.apagados === 1 ? '' : 's') + '. ' + e.message + ' Pode tentar de novo (baixe um backup novo antes).';
+      z.backupIds = null;
+      render(); return;
+    }
+    if (z.ativ){
+      try{
+        var snapA = await comTempoLimite(getDocs(query(collection(fs, 'atividades'), where('loja', '==', z.loja))), 30000, MSG_SEM_CONEXAO);
+        res.atividades = await apagarEmLotes(snapA.docs.map(function(d){ return d.ref; }), null);
+      } catch(e){
+        res.atividadesErro = /permission/i.test(e.message || '')
+          ? 'As regras do Firestore ainda não permitem apagar atividades. Publique o firestore.rules novo no Console do Firebase e repita só esta parte.'
+          : e.message;
+      }
+    }
+    // o “último upload” da loja também volta a ficar em branco (os códigos nos laboratórios ficam)
+    try{ await gravar(doc(fs, 'configLoja', lojaPorNome(z.loja).slug), { ultimaImportacao: deleteField() }, { merge: true }); } catch(e){}
+    state.equipes = null;
+    z.feito = res; z.busy = null;
+    render();
+    if (state.view === 'equipes') carregarAtividades();
+  }
+
+  function zonaDeRiscoHtml(){
+    if (!state.session || state.session.role !== 'admin') return '';
+    var linhas = LOJAS_TODAS.map(function(loja){
+      var n = pedidosCache.filter(function(p){ return p.loja === loja; }).length;
+      return '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--border);">' +
+        '<div><span style="font-weight:800;">' + escapeHtml(loja) + '</span> <span style="font-size:12px;color:var(--ink-soft);">· ' + n + ' pedido' + (n === 1 ? '' : 's') + ' lançado' + (n === 1 ? '' : 's') + '</span></div>' +
+        '<button data-zerar-loja="' + escapeHtml(loja) + '" class="btn btn-outline" style="color:var(--terracota-dark);border-color:var(--terracota-dark);">Zerar lançamentos</button>' +
+      '</div>';
+    }).join('');
+    return '<div class="card" style="margin-top:16px;border:1px solid var(--terracota-dark);">' +
+      '<div style="font-size:15px;font-weight:800;color:var(--terracota-dark);">Zona de risco — só o admin vê</div>' +
+      '<div style="font-size:12px;color:var(--ink-soft);margin:4px 0 8px;">Apaga todos os pedidos de uma loja, como se ela nunca tivesse lançado nada. As outras lojas não mudam. Antes de apagar o app baixa um backup e pede para digitar o nome da loja.</div>' +
+      linhas + '</div>';
+  }
+
+  function modalZerarLoja(){
+    var z = state.zerar;
+    if (!z || !state.session || state.session.role !== 'admin') return '';
+    var n = pedidosCache.filter(function(p){ return p.loja === z.loja; }).length;
+    var nome = escapeHtml(z.loja);
+    if (z.feito){
+      var f = z.feito;
+      return '<div class="modal-backdrop"><div class="modal" style="width:520px;">' +
+        '<div style="font-size:18px;font-weight:800;color:var(--green-dark);">✓ Loja ' + nome + ' zerada</div>' +
+        '<div style="font-size:13px;line-height:1.5;">' + f.pedidos + ' pedido' + (f.pedidos === 1 ? ' apagado' : 's apagados') + '.' +
+          (z.ativ ? (f.atividadesErro ? '' : ' ' + f.atividades + ' registro' + (f.atividades === 1 ? '' : 's') + ' de atividade apagado' + (f.atividades === 1 ? '' : 's') + '.') : ' O histórico de atividades foi mantido.') +
+          ' O “último upload” da loja foi limpo. As outras lojas não foram alteradas.</div>' +
+        (f.atividadesErro ? '<div style="font-size:12px;color:var(--terracota-dark);font-weight:700;">⚠ Atividades não apagadas: ' + escapeHtml(f.atividadesErro) + '</div>' : '') +
+        '<div style="display:flex;justify-content:flex-end;"><button id="zerar-cancelar" class="btn btn-primary">Fechar</button></div>' +
+      '</div></div>';
+    }
+    var ocupado = !!z.busy;
+    var podeApagar = !!z.backupIds && zerarConfere(z) && !ocupado;
+    return '<div class="modal-backdrop"><div class="modal" style="width:540px;">' +
+      '<div style="font-size:18px;font-weight:800;color:var(--terracota-dark);">Zerar lançamentos da loja ' + nome + '</div>' +
+      '<div style="font-size:13px;line-height:1.5;">Isto apaga <b>para sempre</b> os <b>' + n + ' pedido' + (n === 1 ? '' : 's') + '</b> da loja <b>' + nome + '</b>. Os pedidos das outras lojas não são alterados. Não dá para desfazer pelo app.</div>' +
+      '<div style="border:1px solid var(--border);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:8px;">' +
+        '<div style="font-size:13px;font-weight:800;">1. Baixe o backup</div>' +
+        '<div style="font-size:12px;color:var(--ink-soft);">Um arquivo com todos os pedidos da loja, para guardar.</div>' +
+        '<div><button id="zerar-backup" class="btn ' + (z.backupIds ? 'btn-outline' : 'btn-primary') + '" ' + (ocupado ? 'disabled' : '') + '>' +
+          (z.busy === 'backup' ? 'Gerando…' : z.backupIds ? '✓ Backup baixado (' + z.backupIds.length + ' pedidos) — baixar de novo' : '⬇ Baixar backup') + '</button></div>' +
+      '</div>' +
+      '<label style="display:flex;gap:8px;align-items:flex-start;font-size:13px;font-weight:400;color:var(--ink);margin:0;cursor:pointer;">' +
+        '<input type="checkbox" id="zerar-ativ" ' + (z.ativ ? 'checked' : '') + ' style="width:auto;margin-top:2px;">' +
+        '<span>Apagar também o histórico de atividades da loja (aba Equipes: acessos, cobranças, avisos). Assim a loja começa do zero, sem nota.</span></label>' +
+      '<div style="border:1px solid var(--border);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:8px;">' +
+        '<div style="font-size:13px;font-weight:800;">2. Digite o nome da loja para confirmar</div>' +
+        '<input id="zerar-texto" type="text" autocomplete="off" placeholder="' + nome + '" value="' + escapeHtml(z.texto) + '" style="width:100%;">' +
+      '</div>' +
+      (z.erro ? '<div style="font-size:12px;color:var(--terracota-dark);font-weight:700;">' + escapeHtml(z.erro) + '</div>' : '') +
+      (z.busy === 'apagar' ? '<div style="font-size:12px;color:var(--ink-soft);">Apagando… ' + (z.apagados || 0) + ' pedidos até agora. Não feche esta janela.</div>' : '') +
+      '<div style="display:flex;gap:10px;">' +
+        '<button id="zerar-cancelar" class="btn btn-outline" style="flex:1;" ' + (z.busy === 'apagar' ? 'disabled' : '') + '>Cancelar</button>' +
+        '<button id="zerar-confirmar" class="btn btn-terracota" style="flex:1;" ' + (podeApagar ? '' : 'disabled') + '>' + (z.busy === 'apagar' ? 'Apagando…' : 'Apagar tudo da loja ' + nome) + '</button>' +
+      '</div>' +
+    '</div></div>';
+  }
+  // ==== ZERAR-LOJA-FIM ====
+
   function viewEquipes(){
     var hoje = todayStr();
     var chave = state.equipesPeriodo || 'semana';
@@ -2139,7 +2291,7 @@ function novoIdPedido(){
       '. Antes disso, o índice usa só o que já estava gravado nos pedidos (contatos registrados, cobranças da Área em Destaque e pedidos importados) — “Uso do app” não tem dados antes dessa data. ' +
       'Só contam ações feitas com o login da loja (o que o admin faz não entra). A cobrança em lote conta quando a loja clica em “Marcar como cobrados hoje” depois de enviar a mensagem ao laboratório.</div>';
 
-    return topo + quadroAberturas + '<div style="display:flex;gap:16px;flex-wrap:wrap;">' + cards + '</div>' + tabelaDeixados + avisosEquipeHtml(eq.atividades, hoje, per) + tabelaAtividades + nota;
+    return topo + quadroAberturas + '<div style="display:flex;gap:16px;flex-wrap:wrap;">' + cards + '</div>' + tabelaDeixados + avisosEquipeHtml(eq.atividades, hoje, per) + tabelaAtividades + nota + zonaDeRiscoHtml();
   }
 
   function modalNovoPedido(){
@@ -2474,7 +2626,8 @@ function novoIdPedido(){
       (state.modal === 'novo' ? modalNovoPedido() : '') +
       (state.modal === 'codigos' ? modalCodigos() : '') +
       (state.modal === 'cobranca' && state.cobranca ? modalCobranca() : '') +
-      (state.modal === 'importarPdf' ? modalImportarPdf() : '');
+      (state.modal === 'importarPdf' ? modalImportarPdf() : '') +
+      (state.modal === 'zerarLoja' ? modalZerarLoja() : '');
 
     attachHandlers();
   }
@@ -2803,6 +2956,19 @@ function novoIdPedido(){
 
     var btnAtualizarApp = document.getElementById('btn-atualizar-app');
     if (btnAtualizarApp) btnAtualizarApp.addEventListener('click', function(){ location.reload(); });
+    document.querySelectorAll('[data-zerar-loja]').forEach(function(el){
+      el.addEventListener('click', function(){ abrirZerarLoja(el.getAttribute('data-zerar-loja')); });
+    });
+    var zerarBackup = document.getElementById('zerar-backup');
+    if (zerarBackup) zerarBackup.addEventListener('click', baixarBackupLoja);
+    var zerarCancelar = document.getElementById('zerar-cancelar');
+    if (zerarCancelar) zerarCancelar.addEventListener('click', fecharZerarLoja);
+    var zerarConfirmar = document.getElementById('zerar-confirmar');
+    if (zerarConfirmar) zerarConfirmar.addEventListener('click', confirmarZerarLoja);
+    var zerarTexto = document.getElementById('zerar-texto');
+    if (zerarTexto) zerarTexto.addEventListener('input', function(){ if (state.zerar){ state.zerar.texto = zerarTexto.value; state.zerar.erro = null; render(); } });
+    var zerarAtiv = document.getElementById('zerar-ativ');
+    if (zerarAtiv) zerarAtiv.addEventListener('change', function(){ if (state.zerar) state.zerar.ativ = zerarAtiv.checked; });
     var btnCodigos = document.getElementById('btn-codigos');
     if (btnCodigos) btnCodigos.addEventListener('click', function(){ state.modal = 'codigos'; state.codigosErro = null; render(); });
     var cancelarCodigos = document.getElementById('cancelar-codigos');
