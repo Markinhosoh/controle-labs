@@ -65,7 +65,7 @@ import {
 // se ela falhar num computador, o resto do app continua funcionando.
 
 // Versão visível no app (login e rodapé) — ajuda a saber, por um print, qual versão a loja está usando
-const VERSAO_APP = '2026-10-28';
+const VERSAO_APP = '2026-10-29';
 // Desde quando o app registra as atividades das lojas (antes disso, a aba Equipes usa só o que está nos pedidos)
 const INICIO_REGISTRO = '2026-10-20';
 
@@ -239,6 +239,49 @@ function novoIdPedido(){
     });
   }
 
+  // ==== PRAZOS-INICIO ====
+  // Tipos de serviço e prazos. Prazo normal = 7 ou 10 dias úteis; prazo especial = a loja digita os dias.
+  // Atenção = faltam 4 dias úteis; Urgente = faltam 3 dias úteis (vale para todos os tipos).
+  var DIAS_ATENCAO = 4, DIAS_URGENTE = 3;
+  var TIPOS_SERVICO = [['pronta', 'Pronta'], ['surfacada', 'Surfaçada'], ['contato', 'Lente de contato'], ['montagem', 'Montagem'], ['passagem', 'Passagem'], ['conserto', 'Conserto']];
+  function rotuloTipo(t){
+    var x = TIPOS_SERVICO.filter(function(o){ return o[0] === t; })[0];
+    return x ? x[1] : (t === 'especial' ? 'Especial' : 'Surfaçada');
+  }
+  function prazoNormalPadrao(tipo){ return (!tipo || tipo === 'surfacada' || tipo === 'especial') ? 10 : 7; }
+  function ehPrazoEspecial(p){ return p.prazoModo === 'especial' || p.tipo === 'especial'; }
+  function prazoDiasDoPedido(p){
+    var d = parseInt(p.prazoDias, 10);
+    if (d > 0) return d;
+    if (p.tipo === 'especial') return businessDaysBetween(p.dataPedido, p.previsaoOriginal);
+    return prazoNormalPadrao(p.tipo);
+  }
+  function descricaoPrazo(p){
+    var d = prazoDiasDoPedido(p);
+    return (ehPrazoEspecial(p) ? 'prazo especial' : 'prazo normal') + ' de ' + d + ' dia' + (d === 1 ? '' : 's') + ' úteis';
+  }
+  // f = { modo: 'normal'|'especial', tipo, prazoNormal: '7'|'10', prazoDias: dias digitados }
+  function diasDoForm(f){
+    if (f.modo === 'especial') return parseInt(f.prazoDias, 10) || 0;
+    var n = parseInt(f.prazoNormal, 10);
+    return (n === 7 || n === 10) ? n : prazoNormalPadrao(f.tipo);
+  }
+  function montarPrazo(f){
+    var dias = diasDoForm(f);
+    return { tipo: f.tipo, prazoModo: f.modo === 'especial' ? 'especial' : 'normal', prazoDias: dias, previsaoOriginal: addBusinessDays(f.dataPedido, dias) };
+  }
+  // Cada óculos pode ter a sua previsão. A do pedido é a do óculos que ainda não chegou e vence primeiro.
+  function previsaoBase(p){
+    var base = p.previsaoOriginal;
+    var itens = p.itens || [];
+    if (!itens.length) return base;
+    var datas = [];
+    itens.forEach(function(it){ if (!it.entregue) datas.push(dataValida(it.previsao) ? it.previsao : base); });
+    datas = datas.filter(dataValida).sort();
+    return datas.length ? datas[0] : base;
+  }
+  // ==== PRAZOS-FIM ====
+
   // Status do pedido. "Atrasado" = passou da previsão VIGENTE (o novo prazo do laboratório, se houver;
   // senão a previsão original). Os Relatórios continuam medindo o atraso pela previsão original.
   function pedidoStatus(p, hojeTeste){
@@ -249,24 +292,17 @@ function novoIdPedido(){
       if (dataValida(nova) && hojeS > nova) return { status: 'atrasado', previsao: nova, novoPrazo: true, atraso: businessDaysBetween(nova, hojeS) };
       return { status: 'destaque', previsao: nova, novoPrazo: true, diasRestantes: dataValida(nova) ? businessDaysBetween(hojeS, nova) : null };
     }
-    if (dataValida(p.previsaoOriginal) && hojeS > p.previsaoOriginal){
-      return { status: 'atrasado', previsao: p.previsaoOriginal, atraso: businessDaysBetween(p.previsaoOriginal, hojeS), checkUrgencia: checkpointUrgencia(p) };
+    var prev = previsaoBase(p);
+    if (dataValida(prev) && hojeS > prev){
+      return { status: 'atrasado', previsao: prev, atraso: businessDaysBetween(prev, hojeS), checkUrgencia: subBusinessDays(prev, DIAS_URGENTE) };
     }
-    var checkAtencao, checkUrgencia;
-    if (p.tipo === 'especial') {
-      var prazoDias = p.prazoDias || businessDaysBetween(p.dataPedido, p.previsaoOriginal);
-      checkUrgencia = subBusinessDays(p.previsaoOriginal, prazoDias > 3 ? 2 : 1);
-      checkAtencao = subBusinessDays(p.previsaoOriginal, prazoDias > 3 ? Math.ceil(prazoDias / 2) : (prazoDias > 1 ? 1 : 0));
-    } else {
-      checkAtencao = addBusinessDays(p.dataPedido, p.tipo === 'pronta' ? 3 : 5);
-      checkUrgencia = subBusinessDays(p.previsaoOriginal, 2);
-    }
+    var checkAtencao = subBusinessDays(prev, DIAS_ATENCAO), checkUrgencia = subBusinessDays(prev, DIAS_URGENTE);
     var hoje = hojeS;
     var status = 'ok';
     if (hoje >= checkUrgencia) status = 'urgente';
     else if (hoje >= checkAtencao) status = 'atencao';
-    var diasRestantes = businessDaysBetween(hoje, p.previsaoOriginal);
-    return { status: status, previsao: p.previsaoOriginal, checkAtencao: checkAtencao, checkUrgencia: checkUrgencia, diasRestantes: diasRestantes };
+    var diasRestantes = businessDaysBetween(hoje, prev);
+    return { status: status, previsao: prev, checkAtencao: checkAtencao, checkUrgencia: checkUrgencia, diasRestantes: diasRestantes };
   }
 
   function statusLabel(s){
@@ -403,15 +439,14 @@ function novoIdPedido(){
     var base = String(numeroOS || '').trim();
     return posicao === 0 ? base : base + letraIndice(posicao - 1);
   }
-  function gerarItens(numeroOS, quantidade){
+  function gerarItens(numeroOS, quantidade, labs, labPadrao){
     var qtd = Math.max(1, parseInt(quantidade, 10) || 1);
     var itens = [];
     for (var i = 0; i < qtd; i++){
-      itens.push({
-        codigo: codigoDoItem(numeroOS, i),
-        entregue: false,
-        dataEntrega: null
-      });
+      var it = { codigo: codigoDoItem(numeroOS, i), entregue: false, dataEntrega: null };
+      var lab = (labs && labs[i]) || labPadrao;
+      if (lab) it.laboratorio = lab;
+      itens.push(it);
     }
     return itens;
   }
@@ -455,13 +490,13 @@ function novoIdPedido(){
   }
 
   async function criarPedido(form){
-    var faltando = !form.cliente ? 'o nome do cliente' : !form.dataPedido ? 'a data do pedido' : !form.loja ? 'a loja' : (form.tipo === 'especial' && !form.prazoDias) ? 'o prazo especial (dias úteis)' : null;
+    var diasInformados = diasDoForm(form);
+    var faltando = !form.cliente ? 'o nome do cliente' : !form.dataPedido ? 'a data do pedido' : !form.loja ? 'a loja' : (form.modo === 'especial' && !(diasInformados > 0)) ? 'o prazo especial (dias úteis)' : null;
     if (faltando){ state.novoForm.erro = 'Preencha ' + faltando + '.'; render(); return; }
     state.novoForm.erro = null;
     state.saving = true; render();
-    var prazoDias = form.tipo === 'especial' ? parseInt(form.prazoDias, 10) : (form.tipo === 'pronta' ? 7 : 10);
-    var previsaoOriginal = addBusinessDays(form.dataPedido, prazoDias);
-    var itens = gerarItens(form.numeroOS, form.quantidade);
+    var pz = montarPrazo(form);
+    var itens = gerarItens(form.numeroOS, form.quantidade, form.labsItens, form.laboratorio || 'Não informado');
     if (!state.novoForm._docId) state.novoForm._docId = novoIdPedido();
     try{
       await gravar(doc(fs, 'pedidos', state.novoForm._docId), {
@@ -469,12 +504,13 @@ function novoIdPedido(){
         numeroOS: form.numeroOS || '',
         quantidade: itens.length,
         itens: itens,
-        tipo: form.tipo,
+        tipo: pz.tipo,
+        prazoModo: pz.prazoModo,
         loja: form.loja,
-        laboratorio: form.laboratorio || 'Não informado',
+        laboratorio: (itens[0] && itens[0].laboratorio) || form.laboratorio || 'Não informado',
         dataPedido: form.dataPedido,
-        previsaoOriginal: previsaoOriginal,
-        prazoDias: form.tipo === 'especial' ? prazoDias : null,
+        previsaoOriginal: pz.previsaoOriginal,
+        prazoDias: pz.prazoDias,
         entregue: false,
         areaDestaque: false,
         contato: null,
@@ -491,6 +527,19 @@ function novoIdPedido(){
   function itensDoPedido(p){
     if (p.itens && p.itens.length) return p.itens;
     return [{ codigo: p.numeroOS || '', entregue: !!p.entregue, dataEntrega: p.dataEntrega || null }];
+  }
+
+  // Laboratório de cada óculos (os pedidos antigos só têm o do pedido).
+  function laboratorioDoItem(p, it){ return (it && it.laboratorio) || p.laboratorio || 'Não informado'; }
+  function labsDoPedido(p){
+    var vistos = [];
+    itensDoPedido(p).forEach(function(it){ var l = laboratorioDoItem(p, it); if (vistos.indexOf(l) < 0) vistos.push(l); });
+    return vistos.length ? vistos.join(' / ') : (p.laboratorio || '—');
+  }
+  function opcoesLabHtml(sel){
+    var lista = LABORATORIOS_FIXOS.slice();
+    if (sel && lista.indexOf(sel) < 0) lista.unshift(sel);
+    return lista.map(function(l){ return '<option value="' + escapeHtml(l) + '" ' + (l === sel ? 'selected' : '') + '>' + escapeHtml(l) + '</option>'; }).join('');
   }
 
   async function marcarItemEntregue(pedidoId, idx, chegou){
@@ -572,19 +621,185 @@ function novoIdPedido(){
     state.saving = false; render();
   }
 
-  async function editarPedido(id, dados){
-    var p = pedidosCache.find(function(x){ return x.id === id; });
-    // trocou o Nº OS: renumera os óculos pela posição, mantendo o que já chegou
-    if (p && p.itens && p.itens.length && dados.numeroOS !== (p.numeroOS || '')){
-      dados.itens = p.itens.map(function(it, i){ return Object.assign({}, it, { codigo: codigoDoItem(dados.numeroOS, i) }); });
+  // ==== EDICAO-INICIO ====
+  // Editar pedido: a própria loja (ou o admin) corrige os dados. Toda alteração fica registrada em pedido.alteracoes.
+  function abrirEdicao(p){
+    var itens = itensDoPedido(p);
+    var modo = ehPrazoEspecial(p) ? 'especial' : 'normal';
+    var dias = prazoDiasDoPedido(p);
+    state.editForm = {
+      cliente: p.cliente || '', numeroOS: p.numeroOS || '', dataPedido: p.dataPedido || '',
+      tipo: p.tipo || 'surfacada', modo: modo,
+      prazoNormal: String(modo === 'normal' && (dias === 7 || dias === 10) ? dias : prazoNormalPadrao(p.tipo)),
+      prazoDias: modo === 'especial' ? String(dias) : '',
+      previsao: p.previsaoOriginal || '', quantidade: itens.length, erro: null,
+      itens: itens.map(function(it){
+        return { entregue: !!it.entregue, dataEntrega: it.dataEntrega || null, laboratorio: laboratorioDoItem(p, it), previsao: dataValida(it.previsao) ? it.previsao : '' };
+      })
+    };
+    state.modoEdicao = true;
+    render();
+  }
+  function definirCampo(id, valor){ var el = document.getElementById(id); if (el) el.value = valor; }
+  function fecharEdicao(){ state.modoEdicao = false; state.editForm = null; render(); }
+  function sincronizarEditForm(){
+    var f = state.editForm; if (!f) return;
+    function v(id){ var el = document.getElementById(id); return el ? el.value : null; }
+    var x;
+    if ((x = v('edit-cliente')) != null) f.cliente = x;
+    if ((x = v('edit-os')) != null) f.numeroOS = x;
+    if ((x = v('edit-data')) != null) f.dataPedido = x;
+    if ((x = v('edit-tipo')) != null) f.tipo = x;
+    if ((x = v('edit-prazo-normal')) != null) f.prazoNormal = x;
+    if ((x = v('edit-prazo-dias')) != null) f.prazoDias = x;
+    if ((x = v('edit-previsao')) != null) f.previsao = x;
+    if ((x = v('edit-qtd')) != null) f.quantidade = x;
+    f.itens.forEach(function(it, i){
+      var l = v('edit-item-lab-' + i); if (l != null) it.laboratorio = l;
+      var pv = v('edit-item-prev-' + i); if (pv != null) it.previsao = pv;
+    });
+  }
+  // mudou a data, o tipo ou o prazo: a previsão é recalculada (e a pessoa ainda pode ajustar a data na mão)
+  function recalcularPrevisaoEdit(){
+    var f = state.editForm; if (!f) return;
+    var dias = diasDoForm(f);
+    if (dataValida(f.dataPedido) && dias > 0) f.previsao = addBusinessDays(f.dataPedido, dias);
+    definirCampo('edit-previsao', f.previsao || '');
+  }
+  function ajustarQuantidadeEdicao(){
+    var f = state.editForm; if (!f) return;
+    var q = Math.min(20, Math.max(1, parseInt(f.quantidade, 10) || 1));
+    if (q < f.itens.length){
+      if (f.itens.slice(q).some(function(it){ return it.entregue; })){
+        f.erro = 'Não dá para tirar um óculos que já chegou. Desfaça a chegada dele antes.';
+        f.quantidade = f.itens.length; return;
+      }
+      f.itens = f.itens.slice(0, q);
     }
-    state.saving = true; render();
+    while (f.itens.length < q) f.itens.push({ entregue: false, dataEntrega: null, laboratorio: (f.itens[0] && f.itens[0].laboratorio) || 'Não informado', previsao: '' });
+    f.quantidade = q; f.erro = null;
+  }
+
+  function descreverMudancas(p, patch, itensAntes){
+    var m = [];
+    function q(s){ return '“' + s + '”'; }
+    if ((p.cliente || '') !== patch.cliente) m.push('Cliente: ' + q(p.cliente || '—') + ' → ' + q(patch.cliente));
+    if ((p.numeroOS || '') !== patch.numeroOS) m.push('Nº OS: ' + q(p.numeroOS || '—') + ' → ' + q(patch.numeroOS || '—'));
+    if ((p.dataPedido || '') !== patch.dataPedido) m.push('Data do pedido: ' + fmtDataCompleta(p.dataPedido) + ' → ' + fmtDataCompleta(patch.dataPedido));
+    if ((p.tipo || '') !== patch.tipo) m.push('Tipo: ' + rotuloTipo(p.tipo) + ' → ' + rotuloTipo(patch.tipo));
+    var prazoAntes = (ehPrazoEspecial(p) ? 'especial ' : 'normal ') + prazoDiasDoPedido(p) + ' dias úteis';
+    var prazoDepois = (patch.prazoModo === 'especial' ? 'especial ' : 'normal ') + patch.prazoDias + ' dias úteis';
+    if (prazoAntes !== prazoDepois) m.push('Prazo: ' + prazoAntes + ' → ' + prazoDepois);
+    if ((p.previsaoOriginal || '') !== patch.previsaoOriginal) m.push('Previsão: ' + fmtDataCompleta(p.previsaoOriginal) + ' → ' + fmtDataCompleta(patch.previsaoOriginal));
+    if (itensAntes.length !== patch.itens.length) m.push('Quantidade de óculos: ' + itensAntes.length + ' → ' + patch.itens.length);
+    patch.itens.forEach(function(it, i){
+      var antes = itensAntes[i]; if (!antes) return;
+      var labAntes = laboratorioDoItem(p, antes);
+      if (labAntes !== it.laboratorio) m.push('Óculos ' + (it.codigo || (i + 1)) + ': laboratório ' + labAntes + ' → ' + it.laboratorio);
+      var pa = dataValida(antes.previsao) ? antes.previsao : '', pn = dataValida(it.previsao) ? it.previsao : '';
+      if (pa !== pn) m.push('Óculos ' + (it.codigo || (i + 1)) + ': previsão ' + (pa ? fmtDataCompleta(pa) : 'a do pedido') + ' → ' + (pn ? fmtDataCompleta(pn) : 'a do pedido'));
+    });
+    return m;
+  }
+
+  async function salvarEdicaoPedido(id){
+    var p = pedidosCache.find(function(x){ return x.id === id; });
+    var f = state.editForm;
+    if (!p || !f) return;
+    if (state.session.role !== 'admin' && p.loja !== state.session.loja) return;
+    sincronizarEditForm();
+    var cliente = f.cliente.trim();
+    var dias = diasDoForm(f);
+    var erro = !cliente ? 'Preencha o nome do cliente.' : !dataValida(f.dataPedido) ? 'Informe a data do pedido.'
+      : (f.modo === 'especial' && !(dias > 0)) ? 'Informe o prazo especial (dias úteis).' : !dataValida(f.previsao) ? 'Informe a previsão.'
+      : f.itens.some(function(it){ return it.previsao && !dataValida(it.previsao); }) ? 'Há uma previsão de óculos com data inválida.' : null;
+    if (erro){ f.erro = erro; render(); return; }
+    var os = f.numeroOS.trim();
+    var itensAntes = itensDoPedido(p);
+    var novosItens = f.itens.map(function(it, i){
+      var n = { codigo: codigoDoItem(os, i), entregue: !!it.entregue, dataEntrega: it.dataEntrega || null, laboratorio: it.laboratorio || 'Não informado' };
+      if (dataValida(it.previsao) && it.previsao !== f.previsao) n.previsao = it.previsao;
+      return n;
+    });
+    var patch = {
+      cliente: cliente, numeroOS: os, dataPedido: f.dataPedido, tipo: f.tipo, prazoModo: f.modo === 'especial' ? 'especial' : 'normal', prazoDias: dias,
+      previsaoOriginal: f.previsao, quantidade: novosItens.length, itens: novosItens, laboratorio: novosItens[0].laboratorio
+    };
+    var todosChegaram = novosItens.every(function(it){ return it.entregue; });
+    if (todosChegaram !== !!p.entregue){
+      patch.entregue = todosChegaram; patch.dataEntrega = todosChegaram ? todayStr() : null;
+      if (todosChegaram) patch.areaDestaque = false;
+    }
+    var mudancas = descreverMudancas(p, patch, itensAntes);
+    if (!mudancas.length){ fecharEdicao(); return; }
+    patch.alteracoes = (p.alteracoes || []).concat([{ em: todayStr(), hora: horaAgora(), por: state.session.role === 'admin' ? 'admin' : 'loja', mudancas: mudancas }]).slice(-50);
+    state.saving = true; f.erro = null; render();
     try{
-      await gravar(doc(fs, 'pedidos', id), dados, { merge: true });
-      state.modoEdicao = false;
-    } catch(e){ state.error = e.message; }
+      await gravar(doc(fs, 'pedidos', id), patch, { merge: true });
+      registrarAtividade('edicao', p, { mudancas: mudancas.length });
+      state.modoEdicao = false; state.editForm = null;
+    } catch(e){ f.erro = 'Não foi possível salvar: ' + e.message; }
     state.saving = false; render();
   }
+
+  function painelEdicaoHtml(p){
+    var f = state.editForm; if (!f) return '';
+    var modo = f.modo === 'especial' ? 'especial' : 'normal';
+    var tipos = TIPOS_SERVICO.slice();
+    if (f.tipo === 'especial') tipos.push(['especial', 'Especial (antigo)']);
+    var prazoNormal = parseInt(f.prazoNormal, 10) === 7 ? '7' : parseInt(f.prazoNormal, 10) === 10 ? '10' : String(prazoNormalPadrao(f.tipo));
+    var tabs = '<div style="display:flex;gap:6px;">' + [['normal', 'Prazo normal (7 a 10 dias úteis)'], ['especial', 'Prazo especial (digite os dias)']].map(function(o){
+      return '<button data-edit-modo="' + o[0] + '" class="btn ' + (modo === o[0] ? 'btn-primary' : 'btn-outline') + '" style="flex:1;padding:8px 10px;font-size:12px;">' + o[1] + '</button>';
+    }).join('') + '</div>';
+    var linhasItens = f.itens.map(function(it, i){
+      return '<div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;padding:10px 12px;background:var(--bg);border-radius:8px;">' +
+        '<div style="min-width:90px;font-weight:800;font-size:13px;padding-bottom:10px;">' + escapeHtml(codigoDoItem(f.numeroOS, i) || ('Item ' + (i + 1))) + (it.entregue ? ' <span style="font-weight:400;color:var(--green-dark);font-size:11px;">chegou</span>' : '') + '</div>' +
+        '<div style="flex:2;min-width:180px;"><label>Laboratório</label><select id="edit-item-lab-' + i + '" style="width:100%;">' + opcoesLabHtml(it.laboratorio) + '</select></div>' +
+        '<div style="flex:1;min-width:150px;"><label>Previsão (vazio = a do pedido)</label><input id="edit-item-prev-' + i + '" type="date" value="' + escapeHtml(it.previsao || '') + '" style="width:100%;"></div>' +
+      '</div>';
+    }).join('');
+    return '<div class="card" style="margin-top:16px;display:flex;flex-direction:column;gap:12px;">' +
+      '<div style="font-size:15px;font-weight:800;">Editar pedido</div>' +
+      '<div style="display:flex;gap:10px;flex-wrap:wrap;">' +
+        '<div style="flex:2;min-width:200px;"><label>Cliente</label><input id="edit-cliente" type="text" value="' + escapeHtml(f.cliente) + '" style="width:100%;"></div>' +
+        '<div style="flex:1;min-width:120px;"><label>Nº OS</label><input id="edit-os" type="text" value="' + escapeHtml(f.numeroOS) + '" style="width:100%;"></div>' +
+        '<div style="flex:1;min-width:110px;"><label>Qtd. de óculos</label><input id="edit-qtd" type="number" min="1" max="20" value="' + escapeHtml(f.quantidade) + '" style="width:100%;"></div>' +
+      '</div>' +
+      '<div style="display:flex;gap:10px;flex-wrap:wrap;">' +
+        '<div style="flex:1;min-width:150px;"><label>Data do pedido</label><input id="edit-data" type="date" value="' + escapeHtml(f.dataPedido) + '" style="width:100%;"></div>' +
+        '<div style="flex:1;min-width:150px;"><label>Tipo</label><select id="edit-tipo" style="width:100%;">' +
+          tipos.map(function(o){ return '<option value="' + o[0] + '" ' + (f.tipo === o[0] ? 'selected' : '') + '>' + o[1] + '</option>'; }).join('') +
+        '</select></div>' +
+      '</div>' +
+      tabs +
+      '<div style="display:flex;gap:10px;flex-wrap:wrap;">' +
+        (modo === 'especial'
+          ? '<div style="flex:1;min-width:150px;"><label>Prazo especial (dias úteis)</label><input id="edit-prazo-dias" type="number" min="1" value="' + escapeHtml(f.prazoDias) + '" placeholder="Ex: 3 ou 15" style="width:100%;"></div>'
+          : '<div style="flex:1;min-width:150px;"><label>Prazo normal</label><select id="edit-prazo-normal" style="width:100%;"><option value="7" ' + (prazoNormal === '7' ? 'selected' : '') + '>7 dias úteis</option><option value="10" ' + (prazoNormal === '10' ? 'selected' : '') + '>10 dias úteis</option></select></div>') +
+        '<div style="flex:1;min-width:150px;"><label>Previsão de entrega</label><input id="edit-previsao" type="date" value="' + escapeHtml(f.previsao) + '" style="width:100%;"></div>' +
+      '</div>' +
+      '<div style="font-size:12px;color:var(--ink-soft);">Mudou a data, o tipo ou o prazo? A previsão se ajusta sozinha; se precisar, corrija a data na mão.</div>' +
+      '<div style="font-size:13px;font-weight:800;margin-top:4px;">Laboratório e prazo de cada óculos</div>' +
+      '<div style="display:flex;flex-direction:column;gap:8px;">' + linhasItens + '</div>' +
+      (f.erro ? '<div style="font-size:12px;color:var(--terracota-dark);font-weight:700;">' + escapeHtml(f.erro) + '</div>' : '') +
+      '<div style="font-size:12px;color:var(--ink-soft);">Toda alteração fica registrada neste pedido.</div>' +
+      '<div style="display:flex;gap:10px;margin-top:6px;">' +
+        '<button id="cancelar-edicao" class="btn btn-outline" style="flex:1;">Cancelar</button>' +
+        '<button id="salvar-edicao" class="btn btn-primary" style="flex:1;" ' + (state.saving ? 'disabled' : '') + '>' + (state.saving ? 'Salvando…' : 'Salvar alterações') + '</button>' +
+      '</div>' +
+    '</div>';
+  }
+  function historicoAlteracoesHtml(p){
+    var a = p.alteracoes || [];
+    if (!a.length) return '';
+    return '<div class="card" style="margin-top:16px;display:flex;flex-direction:column;gap:8px;">' +
+      '<div style="font-size:15px;font-weight:800;">Alterações neste pedido</div>' +
+      a.slice().reverse().map(function(x){
+        return '<div style="font-size:12px;background:var(--bg);border-radius:8px;padding:8px 12px;line-height:1.5;"><b>' + fmtDataCompleta(x.em) + (x.hora ? ' ' + escapeHtml(x.hora) : '') + ' · ' + (x.por === 'admin' ? 'admin' : 'loja') + ':</b> ' + escapeHtml((x.mudancas || []).join(' · ')) + '</div>';
+      }).join('') +
+    '</div>';
+  }
+  // ==== EDICAO-FIM ====
 
   async function excluirPedido(id){
     var p = pedidosCache.find(function(x){ return x.id === id; });
@@ -879,6 +1094,8 @@ function novoIdPedido(){
 
   // ==== LEITOR-PDF-FIM ====
 
+  // prazo escolhido na linha do PDF: '7', '10' ou 'especial'
+  function prazoSelDe(c){ return c.prazoSel || (c.tipo === 'especial' ? 'especial' : String(prazoNormalPadrao(c.tipo))); }
   async function salvarImportados(candidatos){
     var selecionados = candidatos.filter(function(c){ return c.incluir && !c.salvo; });
     var correcoes = (state.pdfCorrecoes || []).filter(function(c){ return c.incluir && !c.salvo && c.cliente; });
@@ -898,21 +1115,22 @@ function novoIdPedido(){
       }
       for (var i = 0; i < selecionados.length; i++){
         var c = selecionados[i];
-        var prazoDias = c.tipo === 'especial' ? (parseInt(c.prazoDias, 10) || 10) : (c.tipo === 'pronta' ? 7 : 10);
-        var previsaoOriginal = addBusinessDays(c.dataPedido, prazoDias);
-        var itens = gerarItens(c.numeroOS, c.quantidade);
+        var selPrazo = prazoSelDe(c);
+        var pz = montarPrazo({ tipo: c.tipo, modo: selPrazo === 'especial' ? 'especial' : 'normal', prazoNormal: selPrazo, prazoDias: parseInt(c.prazoDias, 10) || 10, dataPedido: c.dataPedido });
+        var itens = gerarItens(c.numeroOS, c.quantidade, c.labsItens, c.laboratorio || 'Não informado');
         if (!c._docId) c._docId = novoIdPedido();
         await gravar(doc(fs, 'pedidos', c._docId), {
           cliente: c.cliente.trim(),
           numeroOS: c.numeroOS || '',
           quantidade: itens.length,
           itens: itens,
-          tipo: c.tipo,
+          tipo: pz.tipo,
+          prazoModo: pz.prazoModo,
           loja: c.loja,
-          laboratorio: c.laboratorio || 'Não informado',
+          laboratorio: (itens[0] && itens[0].laboratorio) || c.laboratorio || 'Não informado',
           dataPedido: c.dataPedido,
-          previsaoOriginal: previsaoOriginal,
-          prazoDias: c.tipo === 'especial' ? prazoDias : null,
+          previsaoOriginal: pz.previsaoOriginal,
+          prazoDias: pz.prazoDias,
           entregue: false,
           areaDestaque: false,
           contato: null,
@@ -1146,8 +1364,15 @@ function novoIdPedido(){
   // Cobrança em lote: os urgentes e atrasados de cada laboratório viram UMA mensagem, que o time copia e
   // cola na conversa com o laboratório. Depois, "Marcar como cobrados hoje" registra a cobrança de todos.
   // A mensagem leva só o que o laboratório usa: OS, data do pedido, previsão e situação.
-  function cobradoNoDia(p, dia){
-    return !!((p.lembretes && p.lembretes[dia]) || (p.contato && p.contato.registradoEm === dia));
+  // Com "lab", vale a cobrança feita àquele laboratório (um pedido com óculos em laboratórios diferentes
+  // aparece uma vez em cada um). Sem "lab", vale qualquer cobrança do pedido.
+  function cobradoNoDia(p, dia, lab){
+    var contatoHoje = !!(p.contato && p.contato.registradoEm === dia);
+    var legado = !!((p.lembretes && p.lembretes[dia]) || contatoHoje);
+    if (!lab) return legado;
+    var porLab = p.cobradoLab && p.cobradoLab[dia];
+    if (porLab && Object.keys(porLab).length && !contatoHoje) return !!porLab[lab];
+    return legado;
   }
   function codigosPendentes(p){
     var itens = itensDoPedido(p);
@@ -1165,14 +1390,27 @@ function novoIdPedido(){
     var mapa = {};
     pedidos.forEach(function(p){
       if (p.entregue) return;
-      var s = pedidoStatus(p, hoje);
-      if (s.status !== 'urgente' && s.status !== 'atrasado') return;
-      var lab = p.laboratorio || 'Não informado';
-      var chave = p.loja + '|' + lab;
-      if (!mapa[chave]) mapa[chave] = { chave: chave, loja: p.loja, laboratorio: lab, itens: [] };
-      mapa[chave].itens.push({
-        p: p, s: s, cobradoHoje: cobradoNoDia(p, hoje),
-        linha: 'OS ' + codigosPendentes(p) + ' · pedido ' + fmtDate(p.dataPedido) + ' · ' + (s.novoPrazo ? 'novo prazo ' : 'previsão ') + fmtDate(s.previsao) + ' · ' + situacaoCobranca(s)
+      var itens = itensDoPedido(p);
+      // só os óculos que ainda não chegaram e estão urgentes/atrasados, juntos por laboratório
+      var porLab = {};
+      itens.forEach(function(it){
+        if (it.entregue) return;
+        var pseudo = Object.assign({}, p, { itens: [it], previsaoOriginal: dataValida(it.previsao) ? it.previsao : p.previsaoOriginal });
+        var s = pedidoStatus(pseudo, hoje);
+        if (s.status !== 'urgente' && s.status !== 'atrasado') return;
+        var lab = laboratorioDoItem(p, it);
+        (porLab[lab] = porLab[lab] || []).push({ it: it, s: s });
+      });
+      Object.keys(porLab).forEach(function(lab){
+        var lista = porLab[lab].sort(function(a, b){ return (a.s.previsao || '').localeCompare(b.s.previsao || ''); });
+        var s = lista[0].s;
+        var codigos = lista.length === itens.length ? (p.numeroOS || '—') : lista.map(function(x){ return x.it.codigo; }).join(', ');
+        var chave = p.loja + '|' + lab;
+        if (!mapa[chave]) mapa[chave] = { chave: chave, loja: p.loja, laboratorio: lab, itens: [] };
+        mapa[chave].itens.push({
+          k: chave + '|' + p.id, p: p, s: s, cobradoHoje: cobradoNoDia(p, hoje, lab),
+          linha: 'OS ' + codigos + ' · pedido ' + fmtDate(p.dataPedido) + ' · ' + (s.novoPrazo ? 'novo prazo ' : 'previsão ') + fmtDate(s.previsao) + ' · ' + situacaoCobranca(s)
+        });
       });
     });
     return Object.keys(mapa).map(function(k){
@@ -1315,7 +1553,7 @@ function novoIdPedido(){
     return '<div class="card" style="border-color:' + (x.risco === 'hoje' ? 'var(--terracota-dark)' : x.risco ? 'var(--terracota)' : 'var(--amber-dark)') + ';' + (noDetalhe ? '' : 'margin-bottom:14px;') + '">' +
       '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">' +
         '<div><div style="font-size:16px;font-weight:800;">📞 ' + escapeHtml(p.cliente) + (p.numeroOS ? ' · OS ' + escapeHtml(p.numeroOS) : '') + '</div>' +
-        '<div style="font-size:12px;color:var(--ink-soft);margin-top:2px;">' + escapeHtml(p.loja) + ' · Laboratório: ' + escapeHtml(p.laboratorio || '—') + '</div></div>' +
+        '<div style="font-size:12px;color:var(--ink-soft);margin-top:2px;">' + escapeHtml(p.loja) + ' · Laboratório: ' + escapeHtml(labsDoPedido(p)) + '</div></div>' +
         chipRisco +
       '</div>' +
       '<div style="font-size:14px;font-weight:700;margin-top:10px;">' + escapeHtml(a.motivo || 'Há novidade para o cliente') + '</div>' +
@@ -1430,14 +1668,14 @@ function novoIdPedido(){
       var rowBg = s.status === 'atrasado' ? 'background:#EFC9B8;' : s.status === 'urgente' ? 'background:var(--terracota-tint);' : (s.status === 'atencao' ? 'background:var(--amber-tint);' : '');
       var situacao = s.status === 'atrasado' ? '<span style="color:var(--terracota-dark);font-weight:800;">Atrasado ' + diasUteisTxt(s.atraso) + '</span>'
         : s.diasRestantes != null ? (s.diasRestantes <= 0 ? 'Vence hoje' : diasUteisTxt(s.diasRestantes)) : '—';
-      var tipoLabel = p.tipo === 'pronta' ? 'Pronta' : (p.tipo === 'especial' ? 'Especial' : 'Surfaçada');
+      var tipoLabel = rotuloTipo(p.tipo) + (p.prazoModo === 'especial' ? ' (prazo especial)' : '');
       var itensP = itensDoPedido(p);
       var progressoTxt = itensP.length > 1 ? ' ('+itensP.filter(function(it){ return it.entregue; }).length+'/'+itensP.length+' chegaram)' : '';
       return '<tr data-open="'+p.id+'" style="cursor:pointer;'+rowBg+'">' +
         '<td style="font-weight:700;">'+escapeHtml(p.cliente)+(p.numeroOS?' <span style="font-weight:400;color:var(--ink-soft);">· OS '+escapeHtml(p.numeroOS)+escapeHtml(progressoTxt)+'</span>':'')+'</td>' +
         '<td style="color:var(--ink-soft);">'+tipoLabel+'</td>' +
         '<td style="color:var(--ink-soft);">'+p.loja+'</td>' +
-        '<td style="color:var(--ink-soft);font-weight:600;">'+escapeHtml(p.laboratorio||'—')+'</td>' +
+        '<td style="color:var(--ink-soft);font-weight:600;">'+escapeHtml(labsDoPedido(p))+'</td>' +
         '<td style="color:var(--ink-soft);">'+fmtDate(p.dataPedido)+'</td>' +
         '<td style="color:var(--ink-soft);">'+fmtDate(s.previsao)+(s.novoPrazo ? ' <span style="font-size:11px;">(novo prazo)</span>' : '')+'</td>' +
         '<td style="color:var(--ink-soft);">'+situacao+'</td>' +
@@ -1475,8 +1713,9 @@ function novoIdPedido(){
 
     // faixa "Cobrança do dia": quantos urgentes/atrasados ainda não foram cobrados hoje
     var grupos = gruposCobranca(escopoPedidos(), hojeLista);
-    var pendentesHoje = 0, labsPend = 0;
-    grupos.forEach(function(g){ var n = g.itens.filter(function(it){ return !it.cobradoHoje; }).length; pendentesHoje += n; if (n) labsPend++; });
+    var pendentesHoje = 0, labsPend = 0, idsPend = {}; // um pedido com óculos em 2 laboratórios conta uma vez
+    grupos.forEach(function(g){ var pend = g.itens.filter(function(it){ return !it.cobradoHoje; }); pend.forEach(function(it){ idsPend[it.p.id] = 1; }); if (pend.length) labsPend++; });
+    pendentesHoje = Object.keys(idsPend).length;
     var faixaCobranca = grupos.length
       ? '<div style="margin-top:16px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:12px 16px;border-radius:12px;' +
           (pendentesHoje ? 'background:var(--terracota-tint);border:1px solid var(--terracota);' : 'background:var(--green-tint);border:1px solid var(--border);') + '">' +
@@ -1527,7 +1766,7 @@ function novoIdPedido(){
     var s = pedidoStatus(p);
     var timeline = [
       { label: 'Pedido registrado', date: fmtDate(p.dataPedido), done: true },
-      { label: 'Checkpoint de atenção', date: s.checkAtencao ? fmtDate(s.checkAtencao) : fmtDate(addBusinessDays(p.dataPedido, p.tipo==='pronta'?3:5)), done: s.status !== 'ok' || p.entregue },
+      { label: 'Checkpoint de atenção', date: s.checkAtencao ? fmtDate(s.checkAtencao) : fmtDate(subBusinessDays(previsaoBase(p), DIAS_ATENCAO)), done: s.status !== 'ok' || p.entregue },
       { label: 'Checkpoint de urgência', date: s.checkUrgencia ? fmtDate(s.checkUrgencia) : '—', done: s.status === 'urgente' || s.status === 'atrasado' || p.entregue },
       { label: 'Entrega', date: p.entregue ? fmtDate(p.dataEntrega) : '—', done: !!p.entregue }
     ];
@@ -1562,7 +1801,7 @@ function novoIdPedido(){
       actionPanel += '</div>';
     }
 
-    var tipoLabelDet = p.tipo === 'pronta' ? 'Lente Pronta' : (p.tipo === 'especial' ? 'Pedido Especial ('+(p.prazoDias||'?')+' dias úteis)' : 'Lente Surfaçada');
+    var tipoLabelDet = (p.tipo === 'pronta' || p.tipo === 'surfacada' ? 'Lente ' + rotuloTipo(p.tipo).toLowerCase() : rotuloTipo(p.tipo)) + ' · ' + descricaoPrazo(p);
 
     var itensLista = itensDoPedido(p);
     var itensPanel = '';
@@ -1574,7 +1813,7 @@ function novoIdPedido(){
         '</div>' +
         itensLista.map(function(it, idx){
           return '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:'+(it.entregue?'var(--green-tint)':'var(--bg)')+';border-radius:8px;">' +
-            '<div style="font-weight:700;font-size:13px;">'+escapeHtml(it.codigo || ('Item '+(idx+1)))+(it.entregue?' <span style="font-weight:400;color:var(--green-dark);">· chegou em '+fmtDate(it.dataEntrega)+'</span>':'')+'</div>' +
+            '<div style="font-weight:700;font-size:13px;">'+escapeHtml(it.codigo || ('Item '+(idx+1)))+(it.entregue?' <span style="font-weight:400;color:var(--green-dark);">· chegou em '+fmtDate(it.dataEntrega)+'</span>':'')+' <span style="font-weight:400;color:var(--ink-soft);">· '+escapeHtml(laboratorioDoItem(p, it))+(dataValida(it.previsao)?' · previsão '+fmtDate(it.previsao):'')+'</span></div>' +
             '<button data-item-toggle="'+idx+'" class="btn '+(it.entregue?'btn-outline':'btn-primary')+'" style="font-size:12px;padding:6px 12px;">'+(it.entregue?'Desfazer':'✓ Chegou')+'</button>' +
           '</div>';
         }).join('') +
@@ -1597,35 +1836,12 @@ function novoIdPedido(){
     var btnApagar = '<button id="btn-excluir-pedido" class="btn btn-outline" style="color:var(--terracota-dark);border-color:var(--terracota);">🗑 Apagar lançamento</button>';
 
     var adminPanel = '';
-    if (state.session.role !== 'admin' && !state.confirmarExclusao){
-      adminPanel = '<div style="display:flex;gap:10px;margin-top:16px;">' + btnApagar + '</div>';
-    }
-    if (state.session.role === 'admin'){
-      if (state.modoEdicao){
-        adminPanel = '<div class="card" style="margin-top:16px;display:flex;flex-direction:column;gap:12px;">' +
-          '<div style="font-size:15px;font-weight:800;">Editar pedido (admin)</div>' +
-          '<div style="display:flex;gap:10px;">' +
-            '<div style="flex:2;"><label>Cliente</label><input id="edit-cliente" type="text" value="'+escapeHtml(p.cliente||'')+'" style="width:100%;"></div>' +
-            '<div style="flex:1;"><label>Nº OS</label><input id="edit-os" type="text" value="'+escapeHtml(p.numeroOS||'')+'" style="width:100%;"></div>' +
-          '</div>' +
-          '<div style="display:flex;gap:10px;">' +
-            '<div style="flex:1;"><label>Laboratório</label><select id="edit-lab" style="width:100%;">' +
-              LABORATORIOS_FIXOS.map(function(l){ return '<option value="'+l+'" '+(p.laboratorio===l?'selected':'')+'>'+l+'</option>'; }).join('') +
-            '</select></div>' +
-            '<div style="flex:1;"><label>Data do pedido</label><input id="edit-data" type="date" value="'+(p.dataPedido||'')+'" style="width:100%;"></div>' +
-            '<div style="flex:1;"><label>Previsão original</label><input id="edit-previsao" type="date" value="'+(p.previsaoOriginal||'')+'" style="width:100%;"></div>' +
-          '</div>' +
-          '<div style="display:flex;gap:10px;margin-top:6px;">' +
-            '<button id="cancelar-edicao" class="btn btn-outline" style="flex:1;">Cancelar</button>' +
-            '<button id="salvar-edicao" class="btn btn-primary" style="flex:1;" '+(state.saving?'disabled':'')+'>'+(state.saving?'Salvando…':'Salvar alterações')+'</button>' +
-          '</div>' +
-        '</div>';
-      } else {
-        adminPanel = '<div style="display:flex;gap:10px;margin-top:16px;">' +
-          '<button id="btn-editar-pedido" class="btn btn-outline">✎ Editar pedido</button>' +
-          (state.confirmarExclusao ? '' : btnApagar) +
-        '</div>';
-      }
+    if (state.modoEdicao && state.editForm){
+      adminPanel = painelEdicaoHtml(p);
+    } else if (!state.confirmarExclusao){
+      adminPanel = '<div style="display:flex;gap:10px;margin-top:16px;"><button id="btn-editar-pedido" class="btn btn-outline">✎ Editar pedido</button>' + btnApagar + '</div>';
+    } else {
+      adminPanel = '<div style="display:flex;gap:10px;margin-top:16px;"><button id="btn-editar-pedido" class="btn btn-outline">✎ Editar pedido</button></div>';
     }
 
     return '' +
@@ -1633,7 +1849,7 @@ function novoIdPedido(){
     '<div class="card" style="margin-top:16px;display:flex;flex-direction:column;gap:18px;">' +
       '<div style="display:flex;justify-content:space-between;align-items:flex-start;">' +
         '<div><div style="font-size:20px;font-weight:800;">'+escapeHtml(p.cliente)+(p.numeroOS?' <span style="font-weight:600;color:var(--ink-soft);font-size:15px;">· OS '+escapeHtml(p.numeroOS)+'</span>':'')+'</div>' +
-        '<div style="font-size:13px;color:var(--ink-soft);margin-top:2px;">Loja '+p.loja+' · '+tipoLabelDet+' · Laboratório: '+escapeHtml(p.laboratorio)+'</div></div>' +
+        '<div style="font-size:13px;color:var(--ink-soft);margin-top:2px;">Loja '+p.loja+' · '+tipoLabelDet+' · Laboratório: '+escapeHtml(labsDoPedido(p))+'</div></div>' +
         '<span class="chip '+statusChipClass(s.status)+'">'+statusLabel(s.status)+'</span>' +
       '</div>' +
       '<div style="display:flex;align-items:center;padding-top:8px;">'+timelineHtml+'</div>' +
@@ -1642,7 +1858,8 @@ function novoIdPedido(){
     itensPanel +
     actionPanel +
     adminPanel +
-    apagarPanel;
+    apagarPanel +
+    historicoAlteracoesHtml(p);
   }
 
   function viewDestaque(){
@@ -1685,7 +1902,7 @@ function novoIdPedido(){
       return '<div class="card" style="border-color:var(--terracota);margin-bottom:14px;">' +
         '<div style="display:flex;justify-content:space-between;align-items:flex-start;">' +
           '<div><div style="font-size:16px;font-weight:800;">'+escapeHtml(p.cliente)+(p.numeroOS?' · OS '+escapeHtml(p.numeroOS):'')+'</div>' +
-          '<div style="font-size:12px;color:var(--ink-soft);margin-top:2px;">'+p.loja+' · '+(p.tipo==='pronta'?'Pronta':(p.tipo==='especial'?'Especial':'Surfaçada'))+' · Prazo original: '+fmtDate(p.previsaoOriginal)+' · Laboratório: '+escapeHtml(p.laboratorio)+'</div></div>' +
+          '<div style="font-size:12px;color:var(--ink-soft);margin-top:2px;">'+p.loja+' · '+rotuloTipo(p.tipo)+' · Prazo original: '+fmtDate(p.previsaoOriginal)+' · Laboratório: '+escapeHtml(labsDoPedido(p))+'</div></div>' +
           '<span class="chip chip-destaque">Novo prazo: '+fmtDate(p.contato && p.contato.novaPrevisao)+'</span>' +
         '</div>' +
         historicoHtml +
@@ -1707,7 +1924,7 @@ function novoIdPedido(){
     html;
   }
 
-  function tipoLenteLabel(t){ return t === 'pronta' ? 'Pronta' : (t === 'especial' ? 'Especial' : 'Surfaçada'); }
+  function tipoLenteLabel(t){ return rotuloTipo(t); }
 
   // Data em que a OS ficou completa: com vários óculos, é a do último que chegou.
   // Sem data confiável → null (o pedido fica fora do relatório).
@@ -1870,11 +2087,7 @@ function novoIdPedido(){
 
   function checkpointUrgencia(p){
     if (!dataValida(p.previsaoOriginal)) return null;
-    if (p.tipo === 'especial'){
-      var prazoDias = p.prazoDias || businessDaysBetween(p.dataPedido, p.previsaoOriginal);
-      return subBusinessDays(p.previsaoOriginal, prazoDias > 3 ? 2 : 1);
-    }
-    return subBusinessDays(p.previsaoOriginal, 2);
+    return subBusinessDays(p.previsaoOriginal, DIAS_URGENTE);
   }
   // dia em que o pedido passou a "valer" para a loja: o checkpoint de urgência, ou o cadastro, se foi depois
   function inicioUrgencia(p){
@@ -2280,7 +2493,7 @@ function novoIdPedido(){
       '</div>';
 
     var NOMES = [['acesso', 'Dias com uso'], ['importacao', 'Importações de PDF'], ['novo_pedido', 'Pedidos cadastrados à mão'], ['chegou', 'Óculos marcados “chegou”'],
-      ['cobranca_lote', 'Pedidos cobrados em lote'], ['contato_mesmo', 'Contato: mesmo prazo'], ['contato_novo', 'Contato: novo prazo'], ['contato_destaque', 'Contato na Área em Destaque'], ['cliente_avisado', 'Clientes avisados'], ['whatsapp', 'Botão WhatsApp (antigo)'], ['exclusao', 'Lançamentos apagados']];
+      ['cobranca_lote', 'Pedidos cobrados em lote'], ['contato_mesmo', 'Contato: mesmo prazo'], ['contato_novo', 'Contato: novo prazo'], ['contato_destaque', 'Contato na Área em Destaque'], ['cliente_avisado', 'Clientes avisados'], ['whatsapp', 'Botão WhatsApp (antigo)'], ['edicao', 'Pedidos corrigidos'], ['exclusao', 'Lançamentos apagados']];
     var tabelaAtividades = '<div class="card" style="padding:0;overflow:auto;margin-top:16px;">' +
       '<div style="padding:14px 16px 4px;font-size:15px;font-weight:800;">Atividades registradas no período</div>' +
       '<table><thead><tr><th>Atividade</th>' + LOJAS.map(function(l){ return '<th>' + escapeHtml(l) + '</th>'; }).join('') + '</tr></thead><tbody>' +
@@ -2294,6 +2507,13 @@ function novoIdPedido(){
     return topo + quadroAberturas + '<div style="display:flex;gap:16px;flex-wrap:wrap;">' + cards + '</div>' + tabelaDeixados + avisosEquipeHtml(eq.atividades, hoje, per) + tabelaAtividades + nota + zonaDeRiscoHtml();
   }
 
+  function previsaoNovoTxt(f){
+    var tipoSel = (f.tipo && f.tipo !== 'especial') ? f.tipo : 'surfacada';
+    var dias = diasDoForm({ modo: f.modo === 'especial' ? 'especial' : 'normal', tipo: tipoSel, prazoNormal: f.prazoNormal, prazoDias: f.prazoDias });
+    var data = f.dataPedido || todayStr();
+    if (!(dias > 0) || !dataValida(data)) return '';
+    return 'Previsão de entrega: <b>' + fmtDataCompleta(addBusinessDays(data, dias)) + '</b> · ⚠ Atenção quando faltarem ' + DIAS_ATENCAO + ' dias úteis · 🔴 Urgente quando faltarem ' + DIAS_URGENTE + '.';
+  }
   function modalNovoPedido(){
     var f = state.novoForm;
     var isAdmin = state.session.role === 'admin';
@@ -2302,30 +2522,53 @@ function novoIdPedido(){
           LOJAS.map(function(l){ return '<option value="'+l+'" '+((f.loja||LOJAS[0])===l?'selected':'')+'>'+l+'</option>'; }).join('') +
         '</select></div>'
       : '<div style="flex:1;"><label>Loja</label><input type="text" value="'+escapeHtml(state.session.loja)+'" disabled style="width:100%;background:#f3f0ea;color:var(--ink-soft);"></div>';
-    var isEspecial = f.tipo === 'especial';
-    var qtd = Math.max(1, parseInt(f.quantidade, 10) || 1);
-    var previewCodigos = qtd > 1 ? gerarItens(f.numeroOS || 'xxxx', qtd).map(function(it){ return it.codigo; }).join(' · ') : '';
+    var qtd = Math.min(20, Math.max(1, parseInt(f.quantidade, 10) || 1));
+    var modo = f.modo === 'especial' ? 'especial' : 'normal';
+    var tipoSel = (f.tipo && f.tipo !== 'especial') ? f.tipo : 'surfacada';
+    var pn = parseInt(f.prazoNormal, 10);
+    var diasNormal = (pn === 7 || pn === 10) ? pn : prazoNormalPadrao(tipoSel);
+    var dataPed = f.dataPedido || todayStr();
+    var dias = modo === 'especial' ? (parseInt(f.prazoDias, 10) || 0) : diasNormal;
+    var prev = dias > 0 ? addBusinessDays(dataPed, dias) : '';
+    var labPadrao = f.laboratorio || LABORATORIOS_FIXOS[0];
+    var codigos = gerarItens(f.numeroOS || 'xxxx', qtd).map(function(it){ return it.codigo; });
+    var tabs = '<div style="display:flex;gap:6px;">' + [['normal', 'Prazo normal (7 a 10 dias úteis)'], ['especial', 'Prazo especial (digite os dias)']].map(function(o){
+      return '<button data-novo-modo="' + o[0] + '" class="btn ' + (modo === o[0] ? 'btn-primary' : 'btn-outline') + '" style="flex:1;padding:8px 10px;font-size:12px;">' + o[1] + '</button>';
+    }).join('') + '</div>';
+    var labsItensHtml = qtd > 1
+      ? '<div style="display:flex;flex-direction:column;gap:6px;padding:10px 12px;background:var(--bg);border-radius:8px;">' +
+          '<div style="font-size:12px;color:var(--ink-soft);">Laboratório de cada óculos (começa igual ao de cima; mude só o que for diferente):</div>' +
+          codigos.map(function(cod, i){
+            var v = (f.labsItens && f.labsItens[i]) || labPadrao;
+            return '<div style="display:flex;align-items:center;gap:10px;"><div style="min-width:90px;font-weight:700;font-size:13px;">' + escapeHtml(cod) + '</div>' +
+              '<select id="f-lab-' + i + '" style="flex:1;">' + opcoesLabHtml(v) + '</select></div>';
+          }).join('') +
+        '</div>'
+      : '';
     return '<div class="modal-backdrop"><div class="modal">' +
       '<div style="font-size:18px;font-weight:800;">Novo pedido</div>' +
       '<div style="display:flex;gap:10px;">' +
         '<div style="flex:2;"><label>Cliente</label><input id="f-cliente" type="text" value="'+escapeHtml(f.cliente||'')+'" placeholder="Nome do cliente" style="width:100%;"></div>' +
         '<div style="flex:1;"><label>Nº OS</label><input id="f-os" type="text" value="'+escapeHtml(f.numeroOS||'')+'" placeholder="Ex: 44007" style="width:100%;"></div>' +
-        '<div style="flex:1;"><label>Qtd. de óculos</label><input id="f-qtd" type="number" min="1" value="'+qtd+'" style="width:100%;"></div>' +
+        '<div style="flex:1;"><label>Qtd. de óculos</label><input id="f-qtd" type="number" min="1" max="20" value="'+qtd+'" style="width:100%;"></div>' +
       '</div>' +
-      (qtd > 1 ? '<div style="font-size:12px;color:var(--ink-soft);margin-top:-8px;">Serão criados '+qtd+' itens com códigos: '+escapeHtml(previewCodigos)+'</div>' : '') +
+      (qtd > 1 ? '<div style="font-size:12px;color:var(--ink-soft);margin-top:-8px;">Serão criados '+qtd+' itens com códigos: '+escapeHtml(codigos.join(' · '))+'</div>' : '') +
       '<div style="display:flex;gap:10px;">' +
-        '<div style="flex:1;"><label>Tipo de lente</label><select id="f-tipo" style="width:100%;">' +
-          '<option value="pronta" '+(f.tipo==='pronta'?'selected':'')+'>Pronta (7 dias úteis)</option>' +
-          '<option value="surfacada" '+(f.tipo==='surfacada'||!f.tipo?'selected':'')+'>Surfaçada (10 dias úteis)</option>' +
-          '<option value="especial" '+(isEspecial?'selected':'')+'>Especial (prazo manual)</option>' +
+        '<div style="flex:1;"><label>Tipo</label><select id="f-tipo" style="width:100%;">' +
+          TIPOS_SERVICO.map(function(o){ return '<option value="'+o[0]+'" '+(tipoSel===o[0]?'selected':'')+'>'+o[1]+'</option>'; }).join('') +
         '</select></div>' +
         lojaField +
       '</div>' +
-      (isEspecial ? '<div><label>Prazo especial (dias úteis)</label><input id="f-prazo-dias" type="number" min="1" value="'+(f.prazoDias||'')+'" placeholder="Ex: 3 ou 15" style="width:100%;"></div>' : '') +
-      '<div><label>Laboratório</label><select id="f-lab" style="width:100%;">' +
-        LABORATORIOS_FIXOS.map(function(l){ return '<option value="'+l+'" '+((f.laboratorio||LABORATORIOS_FIXOS[0])===l?'selected':'')+'>'+l+'</option>'; }).join('') +
+      tabs +
+      (modo === 'especial'
+        ? '<div><label>Prazo especial (dias úteis)</label><input id="f-prazo-dias" type="number" min="1" value="'+escapeHtml(f.prazoDias||'')+'" placeholder="Ex: 3 ou 15" style="width:100%;"></div>'
+        : '<div><label>Prazo normal</label><select id="f-prazo-normal" style="width:100%;"><option value="7" '+(diasNormal===7?'selected':'')+'>7 dias úteis</option><option value="10" '+(diasNormal===10?'selected':'')+'>10 dias úteis</option></select></div>') +
+      '<div><label>Laboratório' + (qtd > 1 ? ' (padrão para todos os óculos)' : '') + '</label><select id="f-lab" style="width:100%;">' +
+        LABORATORIOS_FIXOS.map(function(l){ return '<option value="'+l+'" '+(labPadrao===l?'selected':'')+'>'+l+'</option>'; }).join('') +
       '</select></div>' +
-      '<div><label>Data do pedido</label><input id="f-data" type="date" value="'+(f.dataPedido||todayStr())+'" style="width:100%;"></div>' +
+      labsItensHtml +
+      '<div><label>Data do pedido</label><input id="f-data" type="date" value="'+dataPed+'" style="width:100%;"></div>' +
+      '<div id="f-previsao-txt" style="font-size:12px;color:var(--ink-soft);">' + previsaoNovoTxt(f) + '</div>' +
       (f.erro ? '<div style="font-size:12px;color:var(--terracota-dark);font-weight:700;">'+escapeHtml(f.erro)+'</div>' : '') +
       '<div style="display:flex;gap:10px;margin-top:6px;">' +
         '<button id="cancelar-novo" class="btn btn-outline" style="flex:1;">Cancelar</button>' +
@@ -2365,7 +2608,9 @@ function novoIdPedido(){
       if (c.salvo){
         return '<div style="border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin-bottom:10px;background:var(--green-tint);font-size:12px;color:var(--green-dark);font-weight:700;">✓ OS '+escapeHtml(c.numeroOS)+' · '+escapeHtml(c.cliente||c.clienteGuess||'')+' — já salvo</div>';
       }
-      var isEsp = c.tipo === 'especial';
+      var selPrazo = prazoSelDe(c);
+      var isEsp = selPrazo === 'especial';
+      var qtdImp = Math.min(20, Math.max(1, parseInt(c.quantidade, 10) || 1));
       return '<div id="imp-linha-'+i+'" class="imp-linha" style="border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:10px;display:flex;flex-direction:column;gap:8px;">' +
         '<div style="display:flex;gap:8px;align-items:center;">' +
           '<input type="checkbox" id="imp-incluir-'+i+'" '+(c.incluir?'checked':'')+' style="width:auto;">' +
@@ -2379,14 +2624,19 @@ function novoIdPedido(){
           '<div style="flex:1;"><label>Qtd. óculos</label><input id="imp-qtd-'+i+'" data-idx="'+i+'" class="imp-qtd-input" type="number" min="1" value="'+(c.quantidade||1)+'" style="width:100%;"></div>' +
         '</div>' +
         (c.textoLido ? '<div style="font-size:11px;color:var(--ink-soft);background:var(--bg);border-radius:6px;padding:6px 10px;">Texto lido no PDF: '+escapeHtml(c.textoLido)+'</div>' : '') +
-        (parseInt(c.quantidade, 10) > 1 ? '<div style="font-size:12px;color:var(--ink-soft);">Códigos gerados: '+escapeHtml(gerarItens(c.numeroOS, c.quantidade).map(function(it){ return it.codigo; }).join(' · '))+'</div>' : '') +
+        (qtdImp > 1 ? '<div style="display:flex;flex-direction:column;gap:6px;padding:8px 10px;background:var(--bg);border-radius:8px;"><div style="font-size:12px;color:var(--ink-soft);">Laboratório de cada óculos (padrão: o do PDF):</div>' +
+          gerarItens(c.numeroOS, qtdImp).map(function(it, j){
+            var v = (c.labsItens && c.labsItens[j]) || c.laboratorio || 'Não informado';
+            return '<div style="display:flex;align-items:center;gap:10px;"><div style="min-width:90px;font-weight:700;font-size:13px;">'+escapeHtml(it.codigo)+'</div><select id="imp-lab-'+i+'-'+j+'" style="flex:1;">'+opcoesLabHtml(v)+'</select></div>';
+          }).join('') + '</div>' : '') +
         '<div style="display:flex;gap:8px;">' +
           '<div style="flex:1;"><label>Tipo</label><select id="imp-tipo-'+i+'" data-idx="'+i+'" class="imp-tipo-select" style="width:100%;">' +
-            '<option value="pronta" '+(c.tipo==='pronta'?'selected':'')+'>Pronta</option>' +
-            '<option value="surfacada" '+(c.tipo==='surfacada'?'selected':'')+'>Surfaçada</option>' +
-            '<option value="especial" '+(isEsp?'selected':'')+'>Especial</option>' +
+            TIPOS_SERVICO.map(function(o){ return '<option value="'+o[0]+'" '+(c.tipo===o[0]?'selected':'')+'>'+o[1]+'</option>'; }).join('') +
           '</select></div>' +
-          (isEsp ? '<div style="flex:1;"><label>Prazo (dias úteis)</label><input id="imp-prazo-'+i+'" type="number" min="1" value="'+(c.prazoDias||'')+'" style="width:100%;"></div>' : '') +
+          '<div style="flex:1;"><label>Prazo</label><select id="imp-prazosel-'+i+'" data-idx="'+i+'" class="imp-prazosel-select" style="width:100%;">' +
+            [['7', '7 dias úteis'], ['10', '10 dias úteis'], ['especial', 'Especial (digitar)']].map(function(o){ return '<option value="'+o[0]+'" '+(selPrazo===o[0]?'selected':'')+'>'+o[1]+'</option>'; }).join('') +
+          '</select></div>' +
+          (isEsp ? '<div style="flex:1;"><label>Dias úteis</label><input id="imp-prazo-'+i+'" type="number" min="1" value="'+escapeHtml(c.prazoDias||'')+'" style="width:100%;"></div>' : '') +
         '</div>' +
       '</div>';
     }).join('') + correcoesHtml;
@@ -2409,12 +2659,12 @@ function novoIdPedido(){
   function abrirCobranca(){
     var hoje = todayStr();
     var sel = {};
-    gruposCobranca(escopoPedidos(), hoje).forEach(function(g){ g.itens.forEach(function(it){ sel[it.p.id] = !it.cobradoHoje; }); });
+    gruposCobranca(escopoPedidos(), hoje).forEach(function(g){ g.itens.forEach(function(it){ sel[it.k] = !it.cobradoHoje; }); });
     state.cobranca = { sel: sel, copiado: {}, feito: {}, salvando: null, erro: null };
     state.modal = 'cobranca';
     render();
   }
-  function itensSelecionados(g){ return g.itens.filter(function(it){ return state.cobranca.sel[it.p.id]; }); }
+  function itensSelecionados(g){ return g.itens.filter(function(it){ return state.cobranca.sel[it.k]; }); }
 
   async function marcarCobradosHoje(chave){
     var hoje = todayStr();
@@ -2428,12 +2678,13 @@ function novoIdPedido(){
         var p = itens[i].p;
         var patch = { lembretes: {} };
         patch.lembretes[hoje] = true;
+        patch.cobradoLab = {}; patch.cobradoLab[hoje] = {}; patch.cobradoLab[hoje][g.laboratorio] = true; // cobrança por laboratório
         if (!(p.historico && p.historico[hoje])){ // não apaga uma observação já registrada hoje
           patch.historico = {}; patch.historico[hoje] = { observacao: 'Cobrança enviada ao laboratório (em lote)', registradoEm: hoje };
         }
         await gravar(doc(fs, 'pedidos', p.id), patch, { merge: true });
         registrarAtividade('cobranca_lote', p);
-        state.cobranca.sel[p.id] = false;
+        state.cobranca.sel[itens[i].k] = false;
         feitos++;
       }
       state.cobranca.feito[chave] = feitos;
@@ -2478,7 +2729,7 @@ function novoIdPedido(){
         (semLab ? '<div style="font-size:12px;color:var(--terracota-dark);font-weight:700;">⚠ Pedidos sem laboratório informado — confira para qual laboratório enviar (e ajuste o pedido).</div>' : '') +
         '<div style="display:flex;flex-direction:column;gap:4px;">' + g.itens.map(function(it){
           return '<label style="display:flex;gap:8px;align-items:center;font-size:13px;font-weight:400;color:var(--ink);margin:0;cursor:pointer;">' +
-            '<input type="checkbox" id="cob-sel-' + it.p.id + '" data-cob-sel="' + it.p.id + '" ' + (c.sel[it.p.id] ? 'checked' : '') + ' style="width:auto;">' +
+            '<input type="checkbox" id="cob-sel-' + escapeHtml(it.k) + '" data-cob-sel="' + escapeHtml(it.k) + '" ' + (c.sel[it.k] ? 'checked' : '') + ' style="width:auto;">' +
             '<span>' + escapeHtml(it.linha) + '</span>' +
             (it.cobradoHoje ? ' <span class="chip-cobrado">✓ cobrado hoje</span>' : '') +
           '</label>';
@@ -2790,20 +3041,42 @@ function novoIdPedido(){
       });
     });
 
-    // ---- Admin: editar / excluir pedido ----
+    // ---- Editar / excluir pedido (a loja corrige o próprio pedido; o admin, qualquer um) ----
     var btnEditarPedido = document.getElementById('btn-editar-pedido');
-    if (btnEditarPedido) btnEditarPedido.addEventListener('click', function(){ state.modoEdicao = true; render(); });
+    if (btnEditarPedido) btnEditarPedido.addEventListener('click', function(){
+      var pEd = pedidosCache.find(function(x){ return x.id === state.selectedId; });
+      if (pEd) abrirEdicao(pEd);
+    });
     var cancelarEdicao = document.getElementById('cancelar-edicao');
-    if (cancelarEdicao) cancelarEdicao.addEventListener('click', function(){ state.modoEdicao = false; render(); });
+    if (cancelarEdicao) cancelarEdicao.addEventListener('click', fecharEdicao);
     var salvarEdicao = document.getElementById('salvar-edicao');
-    if (salvarEdicao) salvarEdicao.addEventListener('click', function(){
-      editarPedido(state.selectedId, {
-        cliente: document.getElementById('edit-cliente').value.trim(),
-        numeroOS: document.getElementById('edit-os').value.trim(),
-        laboratorio: document.getElementById('edit-lab').value,
-        dataPedido: document.getElementById('edit-data').value,
-        previsaoOriginal: document.getElementById('edit-previsao').value
+    if (salvarEdicao) salvarEdicao.addEventListener('click', function(){ if (!state.saving) salvarEdicaoPedido(state.selectedId); });
+    document.querySelectorAll('[data-edit-modo]').forEach(function(el){
+      el.addEventListener('click', function(){
+        sincronizarEditForm();
+        state.editForm.modo = el.getAttribute('data-edit-modo');
+        recalcularPrevisaoEdit(); render();
       });
+    });
+    var editTipo = document.getElementById('edit-tipo');
+    if (editTipo) editTipo.addEventListener('change', function(){
+      sincronizarEditForm();
+      state.editForm.prazoNormal = String(prazoNormalPadrao(state.editForm.tipo)); // cada tipo começa no prazo normal dele
+      definirCampo('edit-prazo-normal', state.editForm.prazoNormal);
+      recalcularPrevisaoEdit(); render();
+    });
+    var editPrazoNormal = document.getElementById('edit-prazo-normal');
+    if (editPrazoNormal) editPrazoNormal.addEventListener('change', function(){ sincronizarEditForm(); recalcularPrevisaoEdit(); render(); });
+    ['edit-prazo-dias', 'edit-data'].forEach(function(id){
+      var el = document.getElementById(id);
+      if (el) el.addEventListener('input', function(){
+        sincronizarEditForm(); recalcularPrevisaoEdit();
+        var pv = document.getElementById('edit-previsao'); if (pv) pv.value = state.editForm.previsao || '';
+      });
+    });
+    ['edit-os', 'edit-qtd'].forEach(function(id){
+      var el = document.getElementById(id);
+      if (el) el.addEventListener('change', function(){ sincronizarEditForm(); ajustarQuantidadeEdicao(); renderDoBanco(); });
     });
     var btnExcluirPedido = document.getElementById('btn-excluir-pedido');
     if (btnExcluirPedido) btnExcluirPedido.addEventListener('click', function(){ state.confirmarExclusao = true; render(); });
@@ -2815,40 +3088,75 @@ function novoIdPedido(){
     var cancelarNovo = document.getElementById('cancelar-novo');
     if (cancelarNovo) cancelarNovo.addEventListener('click', function(){ state.modal = null; state.novoForm = {}; render(); });
     function sincronizarNovoForm(){
+      var nf = state.novoForm;
       var clienteEl = document.getElementById('f-cliente'), osEl = document.getElementById('f-os'), qtdEl = document.getElementById('f-qtd'),
           lojaEl = document.getElementById('f-loja'), labEl = document.getElementById('f-lab'), dataEl = document.getElementById('f-data'),
           tipoEl = document.getElementById('f-tipo');
-      if (clienteEl) state.novoForm.cliente = clienteEl.value;
-      if (osEl) state.novoForm.numeroOS = osEl.value;
-      if (qtdEl) state.novoForm.quantidade = qtdEl.value;
-      if (lojaEl) state.novoForm.loja = lojaEl.value;
-      if (labEl) state.novoForm.laboratorio = labEl.value;
-      if (dataEl) state.novoForm.dataPedido = dataEl.value;
-      if (tipoEl) state.novoForm.tipo = tipoEl.value;
+      // laboratório de cada óculos: o que está igual ao laboratório principal (de antes desta mudança) continua seguindo o principal
+      var refMain = nf.laboratorio || LABORATORIOS_FIXOS[0];
+      var q = Math.min(20, Math.max(1, parseInt(qtdEl ? qtdEl.value : nf.quantidade, 10) || 1));
+      var labs = nf.labsItens || [];
+      for (var i = 0; i < q; i++){ var el = document.getElementById('f-lab-' + i); if (el) labs[i] = el.value !== refMain ? el.value : ''; }
+      nf.labsItens = labs;
+      // os óculos que seguem o laboratório principal acompanham a mudança dele
+      if (labEl) for (var k = 0; k < q; k++){ var elSeg = document.getElementById('f-lab-' + k); if (elSeg && !labs[k]) elSeg.value = labEl.value; }
+      if (clienteEl) nf.cliente = clienteEl.value;
+      if (osEl) nf.numeroOS = osEl.value;
+      if (qtdEl) nf.quantidade = qtdEl.value;
+      if (lojaEl) nf.loja = lojaEl.value;
+      if (labEl) nf.laboratorio = labEl.value;
+      if (dataEl) nf.dataPedido = dataEl.value;
+      if (tipoEl) nf.tipo = tipoEl.value;
       var prazoDiasEl = document.getElementById('f-prazo-dias');
-      if (prazoDiasEl) state.novoForm.prazoDias = prazoDiasEl.value;
+      if (prazoDiasEl) nf.prazoDias = prazoDiasEl.value;
+      var prazoNormalEl = document.getElementById('f-prazo-normal');
+      if (prazoNormalEl) nf.prazoNormal = prazoNormalEl.value;
     }
+    document.querySelectorAll('[data-novo-modo]').forEach(function(el){
+      el.addEventListener('click', function(){ sincronizarNovoForm(); state.novoForm.modo = el.getAttribute('data-novo-modo'); render(); });
+    });
     var fTipo = document.getElementById('f-tipo');
-    if (fTipo) fTipo.addEventListener('change', function(){ sincronizarNovoForm(); render(); });
-    var fOs = document.getElementById('f-os');
-    if (fOs) fOs.addEventListener('change', function(){ sincronizarNovoForm(); render(); });
-    var fQtd = document.getElementById('f-qtd');
-    if (fQtd) fQtd.addEventListener('change', function(){ sincronizarNovoForm(); render(); });
+    if (fTipo) fTipo.addEventListener('change', function(){
+      sincronizarNovoForm();
+      state.novoForm.prazoNormal = String(prazoNormalPadrao(state.novoForm.tipo)); // cada tipo começa no prazo normal dele
+      definirCampo('f-prazo-normal', state.novoForm.prazoNormal);
+      render();
+    });
+    // renderDoBanco espera o clique terminar: se a pessoa foi direto do campo para o botão Salvar, o botão não some debaixo do mouse
+    ['f-os', 'f-qtd'].forEach(function(id){
+      var el = document.getElementById(id);
+      if (el) el.addEventListener('change', function(){ sincronizarNovoForm(); renderDoBanco(); });
+    });
+    ['f-lab', 'f-prazo-normal'].forEach(function(id){ // listas: a escolha já terminou, pode redesenhar na hora
+      var el = document.getElementById(id);
+      if (el) el.addEventListener('change', function(){ sincronizarNovoForm(); render(); });
+    });
+    ['f-data', 'f-prazo-dias'].forEach(function(id){
+      var el = document.getElementById(id);
+      if (el) el.addEventListener('input', function(){
+        sincronizarNovoForm();
+        var alvo = document.getElementById('f-previsao-txt'); if (alvo) alvo.innerHTML = previsaoNovoTxt(state.novoForm);
+      });
+    });
     var salvarNovo = document.getElementById('salvar-novo');
     if (salvarNovo) salvarNovo.addEventListener('click', function(){
       sincronizarNovoForm();
+      var nf = state.novoForm;
       var lojaEl = document.getElementById('f-loja');
-      var prazoEl = document.getElementById('f-prazo-dias');
       var qtdEl = document.getElementById('f-qtd');
+      var tipoNovo = document.getElementById('f-tipo').value;
       criarPedido({
         cliente: document.getElementById('f-cliente').value.trim(),
         numeroOS: document.getElementById('f-os').value.trim(),
         quantidade: qtdEl ? qtdEl.value : 1,
-        tipo: document.getElementById('f-tipo').value,
+        tipo: tipoNovo,
+        modo: nf.modo === 'especial' ? 'especial' : 'normal',
+        prazoNormal: nf.prazoNormal || String(prazoNormalPadrao(tipoNovo)),
+        prazoDias: nf.prazoDias,
+        labsItens: nf.labsItens,
         loja: lojaEl ? lojaEl.value : state.session.loja,
         laboratorio: document.getElementById('f-lab').value,
-        dataPedido: document.getElementById('f-data').value,
-        prazoDias: prazoEl ? prazoEl.value : null
+        dataPedido: document.getElementById('f-data').value
       });
     });
 
@@ -2864,6 +3172,10 @@ function novoIdPedido(){
         if (tipo) c.tipo = tipo.value;
         if (prazo) c.prazoDias = prazo.value;
         if (qtd) c.quantidade = qtd.value;
+        var pSel = document.getElementById('imp-prazosel-'+i); if (pSel) c.prazoSel = pSel.value;
+        var qImp = Math.min(20, Math.max(1, parseInt(c.quantidade, 10) || 1)), labs = c.labsItens || [], labPdf = c.laboratorio || 'Não informado';
+        for (var j = 0; j < qImp; j++){ var elLab = document.getElementById('imp-lab-'+i+'-'+j); if (elLab) labs[j] = elLab.value !== labPdf ? elLab.value : ''; }
+        c.labsItens = labs;
       });
       (state.pdfCorrecoes || []).forEach(function(c, i){
         var incl = document.getElementById('cor-incluir-'+i), cli = document.getElementById('cor-cliente-'+i);
@@ -2874,9 +3186,14 @@ function novoIdPedido(){
     document.querySelectorAll('.imp-tipo-select').forEach(function(sel){
       sel.addEventListener('change', function(){
         sincronizarCandidatosPdf();
-        state.pdfCandidatos[parseInt(sel.getAttribute('data-idx'), 10)].tipo = sel.value;
+        var cTipo = state.pdfCandidatos[parseInt(sel.getAttribute('data-idx'), 10)];
+        cTipo.tipo = sel.value;
+        if (prazoSelDe(cTipo) !== 'especial'){ cTipo.prazoSel = String(prazoNormalPadrao(cTipo.tipo)); definirCampo('imp-prazosel-' + sel.getAttribute('data-idx'), cTipo.prazoSel); } // cada tipo começa no prazo normal dele
         render();
       });
+    });
+    document.querySelectorAll('.imp-prazosel-select').forEach(function(sel){
+      sel.addEventListener('change', function(){ sincronizarCandidatosPdf(); render(); });
     });
     document.querySelectorAll('.imp-qtd-input').forEach(function(inp){
       inp.addEventListener('change', function(){
